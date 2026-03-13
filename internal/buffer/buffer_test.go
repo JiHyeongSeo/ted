@@ -149,3 +149,164 @@ func TestBufferPositionToOffset(t *testing.T) {
 		t.Errorf("(1,2) offset: expected 6, got %d", off)
 	}
 }
+
+func TestIncrementalInsert(t *testing.T) {
+	b := NewBuffer("hello\nworld\nfoo")
+	if b.LineCount() != 3 {
+		t.Fatalf("expected 3 lines, got %d", b.LineCount())
+	}
+
+	// Insert newline in middle of first line
+	b.Insert(0, 3, "\nnew")
+	if b.LineCount() != 4 {
+		t.Fatalf("expected 4 lines after insert, got %d", b.LineCount())
+	}
+	if b.Line(0) != "hel" {
+		t.Errorf("line 0: got %q", b.Line(0))
+	}
+	if b.Line(1) != "newlo" {
+		t.Errorf("line 1: got %q", b.Line(1))
+	}
+	if b.Line(2) != "world" {
+		t.Errorf("line 2: got %q", b.Line(2))
+	}
+}
+
+func TestIncrementalDelete(t *testing.T) {
+	b := NewBuffer("hello\nworld\nfoo")
+	// Delete "lo\nwor" (spanning newline)
+	b.Delete(0, 3, 6)
+	if b.LineCount() != 2 {
+		t.Fatalf("expected 2 lines after delete, got %d", b.LineCount())
+	}
+	if b.Line(0) != "helld" {
+		t.Errorf("line 0: got %q", b.Line(0))
+	}
+	if b.Line(1) != "foo" {
+		t.Errorf("line 1: got %q", b.Line(1))
+	}
+}
+
+func TestIncrementalMatchesFull(t *testing.T) {
+	tests := []struct {
+		name     string
+		initial  string
+		edits    func(b *Buffer)
+		expected string
+	}{
+		{
+			name:    "Insert without newlines",
+			initial: "hello\nworld",
+			edits: func(b *Buffer) {
+				b.Insert(0, 5, " there")
+			},
+			expected: "hello there\nworld",
+		},
+		{
+			name:    "Insert with multiple newlines",
+			initial: "hello\nworld",
+			edits: func(b *Buffer) {
+				b.Insert(0, 5, "\nfoo\nbar")
+			},
+			expected: "hello\nfoo\nbar\nworld",
+		},
+		{
+			name:    "Delete without newlines",
+			initial: "hello world\ntest",
+			edits: func(b *Buffer) {
+				b.Delete(0, 5, 6) // delete " world"
+			},
+			expected: "hello\ntest",
+		},
+		{
+			name:    "Delete with newlines",
+			initial: "hello\nworld\ntest",
+			edits: func(b *Buffer) {
+				b.Delete(0, 5, 7) // delete "\nworld\n"
+			},
+			expected: "hellotest",
+		},
+		{
+			name:    "Multiple edits",
+			initial: "a\nb\nc",
+			edits: func(b *Buffer) {
+				b.Insert(0, 1, "1")
+				b.Insert(1, 1, "2")
+				b.Delete(2, 0, 1)
+			},
+			expected: "a1\nb2\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test with incremental updates
+			b1 := NewBuffer(tt.initial)
+			tt.edits(b1)
+			result1 := b1.Text()
+			lineCount1 := b1.LineCount()
+
+			// Test with full rebuild (create fresh buffer, apply edits, rebuild)
+			b2 := NewBuffer(tt.initial)
+			tt.edits(b2)
+			b2.rebuildLineIndex()
+			result2 := b2.Text()
+			lineCount2 := b2.LineCount()
+
+			if result1 != tt.expected {
+				t.Errorf("incremental: expected %q, got %q", tt.expected, result1)
+			}
+			if result2 != tt.expected {
+				t.Errorf("full rebuild: expected %q, got %q", tt.expected, result2)
+			}
+			if result1 != result2 {
+				t.Errorf("mismatch: incremental %q != full rebuild %q", result1, result2)
+			}
+			if lineCount1 != lineCount2 {
+				t.Errorf("line count mismatch: incremental %d != full rebuild %d", lineCount1, lineCount2)
+			}
+
+			// Verify all lines match
+			for i := 0; i < lineCount1; i++ {
+				line1 := b1.Line(i)
+				line2 := b2.Line(i)
+				if line1 != line2 {
+					t.Errorf("line %d mismatch: incremental %q != full rebuild %q", i, line1, line2)
+				}
+			}
+		})
+	}
+}
+
+// Benchmarks to demonstrate performance improvement
+
+func BenchmarkIncrementalInsert(b *testing.B) {
+	// Create a large buffer (simulating a 100KB file with ~2000 lines)
+	content := ""
+	for i := 0; i < 2000; i++ {
+		content += "This is a line of text in the file\n"
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf := NewBuffer(content)
+		// Insert text at the beginning (worst case for incremental)
+		buf.Insert(0, 0, "x")
+	}
+}
+
+func BenchmarkFullRebuildInsert(b *testing.B) {
+	// Create a large buffer (simulating a 100KB file with ~2000 lines)
+	content := ""
+	for i := 0; i < 2000; i++ {
+		content += "This is a line of text in the file\n"
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf := NewBuffer(content)
+		offset := buf.PositionToOffset(0, 0)
+		buf.pt.Insert(offset, "x")
+		buf.rebuildLineIndex() // Force full rebuild
+	}
+}

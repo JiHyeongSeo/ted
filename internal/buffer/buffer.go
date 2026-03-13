@@ -89,7 +89,7 @@ func (b *Buffer) Insert(line, col int, text string) {
 	offset := b.PositionToOffset(line, col)
 	edit := b.pt.Insert(offset, text)
 	b.undo.Execute(edit)
-	b.rebuildLineIndex()
+	b.updateLineIndex(edit)
 }
 
 // Delete deletes length bytes at the given line and column. No-op if ReadOnly.
@@ -100,7 +100,7 @@ func (b *Buffer) Delete(line, col, length int) {
 	offset := b.PositionToOffset(line, col)
 	edit := b.pt.Delete(offset, length)
 	b.undo.Execute(edit)
-	b.rebuildLineIndex()
+	b.updateLineIndex(edit)
 }
 
 // Undo reverses the last edit.
@@ -141,6 +141,114 @@ func (b *Buffer) Save() error {
 	}
 	b.undo.MarkSaved()
 	return nil
+}
+
+// updateLineIndex incrementally updates line offsets after an edit.
+func (b *Buffer) updateLineIndex(edit Edit) {
+	if edit.Text == "" {
+		return
+	}
+
+	switch edit.Type {
+	case EditInsert:
+		b.updateLineIndexInsert(edit.Offset, edit.Text)
+	case EditDelete:
+		b.updateLineIndexDelete(edit.Offset, edit.Text)
+	}
+}
+
+// updateLineIndexInsert updates line offsets after an insert operation.
+func (b *Buffer) updateLineIndexInsert(offset int, text string) {
+	// Find which line the offset falls in
+	lineIdx := b.lineAtOffset(offset)
+
+	// Count newlines in inserted text and their positions
+	var newOffsets []int
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\n' {
+			newOffsets = append(newOffsets, offset+i+1)
+		}
+	}
+
+	if len(newOffsets) == 0 {
+		// No new lines added, just shift subsequent line offsets
+		textLen := len(text)
+		for i := lineIdx + 1; i < len(b.lineOffsets); i++ {
+			b.lineOffsets[i] += textLen
+		}
+		return
+	}
+
+	// Insert new line offsets and shift existing ones
+	textLen := len(text)
+	insertAfter := lineIdx // insert new entries after this index
+
+	// Shift all subsequent offsets
+	for i := insertAfter + 1; i < len(b.lineOffsets); i++ {
+		b.lineOffsets[i] += textLen
+	}
+
+	// Insert new line start offsets
+	newLineOffsets := make([]int, 0, len(b.lineOffsets)+len(newOffsets))
+	newLineOffsets = append(newLineOffsets, b.lineOffsets[:insertAfter+1]...)
+	newLineOffsets = append(newLineOffsets, newOffsets...)
+	newLineOffsets = append(newLineOffsets, b.lineOffsets[insertAfter+1:]...)
+	b.lineOffsets = newLineOffsets
+}
+
+// updateLineIndexDelete updates line offsets after a delete operation.
+func (b *Buffer) updateLineIndexDelete(offset int, deletedText string) {
+	// Count newlines in deleted text
+	newlineCount := 0
+	for i := 0; i < len(deletedText); i++ {
+		if deletedText[i] == '\n' {
+			newlineCount++
+		}
+	}
+
+	if newlineCount == 0 {
+		// No lines removed, just shift subsequent line offsets
+		textLen := len(deletedText)
+		lineIdx := b.lineAtOffset(offset)
+		for i := lineIdx + 1; i < len(b.lineOffsets); i++ {
+			b.lineOffsets[i] -= textLen
+		}
+		return
+	}
+
+	// Find the line range that was affected
+	lineIdx := b.lineAtOffset(offset)
+
+	// Remove the merged lines and shift offsets
+	removeStart := lineIdx + 1
+	removeEnd := removeStart + newlineCount
+	if removeEnd > len(b.lineOffsets) {
+		removeEnd = len(b.lineOffsets)
+	}
+
+	textLen := len(deletedText)
+	// Shift remaining offsets
+	newLineOffsets := make([]int, 0, len(b.lineOffsets)-newlineCount)
+	newLineOffsets = append(newLineOffsets, b.lineOffsets[:removeStart]...)
+	for i := removeEnd; i < len(b.lineOffsets); i++ {
+		newLineOffsets = append(newLineOffsets, b.lineOffsets[i]-textLen)
+	}
+	b.lineOffsets = newLineOffsets
+}
+
+// lineAtOffset returns the line index for a given byte offset.
+func (b *Buffer) lineAtOffset(offset int) int {
+	// Binary search for the line containing offset
+	lo, hi := 0, len(b.lineOffsets)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if b.lineOffsets[mid] <= offset {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
 }
 
 // rebuildLineIndex recalculates line start offsets from the current content.

@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -8,7 +9,9 @@ import (
 	"github.com/seoji/ted/internal/buffer"
 	"github.com/seoji/ted/internal/config"
 	"github.com/seoji/ted/internal/input"
+	"github.com/seoji/ted/internal/search"
 	"github.com/seoji/ted/internal/syntax"
+	"github.com/seoji/ted/internal/types"
 	"github.com/seoji/ted/internal/view"
 )
 
@@ -65,6 +68,20 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 		e.OpenFile(path)
 	})
 
+	// Wire search bar callbacks
+	e.searchBar.SetOnSearch(func(query string) {
+		e.performSearch(query)
+	})
+	e.searchBar.SetOnReplace(func(query, replacement string) {
+		e.performReplace(query, replacement)
+	})
+	e.searchBar.SetOnReplaceAll(func(query, replacement string) {
+		e.performReplaceAll(query, replacement)
+	})
+	e.searchBar.SetOnDismiss(func() {
+		// Clear search highlights when dismissed
+	})
+
 	e.registerCommands()
 
 	return e
@@ -103,6 +120,11 @@ func (e *Editor) Run(screen tcell.Screen) error {
 
 	if e.tabs.Count() == 0 {
 		e.OpenEmpty()
+	}
+
+	// Set sidebar root to current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		e.sidebar.SetRoot(cwd)
 	}
 
 	// Populate palette with all commands
@@ -257,6 +279,7 @@ func (e *Editor) syncViewToTab() {
 	}
 
 	e.editorView = view.NewEditorView(tab.Buffer, e.theme)
+	e.editorView.SetLanguage(tab.Language)
 	e.editorView.SetCursorPosition(tab.Cursor)
 	e.editorView.SetScrollY(tab.ScrollY)
 }
@@ -367,6 +390,81 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.Stop()
 	}
 	return nil
+}
+
+func (e *Editor) performSearch(query string) {
+	if query == "" || e.editorView == nil {
+		e.searchBar.SetMatches(nil)
+		return
+	}
+	tab := e.tabs.Active()
+	if tab == nil {
+		return
+	}
+	s, err := search.NewInFileSearch(query, false, false)
+	if err != nil {
+		e.searchBar.SetMatches(nil)
+		return
+	}
+	matches := s.FindAll(tab.Buffer.Text())
+	e.searchBar.SetMatches(matches)
+
+	// Jump to first match after current cursor
+	if len(matches) > 0 {
+		cursor := e.editorView.CursorPosition()
+		for _, m := range matches {
+			if m.Line > cursor.Line || (m.Line == cursor.Line && m.Col > cursor.Col) {
+				e.editorView.SetCursorPosition(types.Position{Line: m.Line, Col: m.Col})
+				e.syncTabFromView()
+				return
+			}
+		}
+		// Wrap: jump to first match
+		e.editorView.SetCursorPosition(types.Position{Line: matches[0].Line, Col: matches[0].Col})
+		e.syncTabFromView()
+	}
+}
+
+func (e *Editor) performReplace(query, replacement string) {
+	tab := e.tabs.Active()
+	if tab == nil || e.editorView == nil {
+		return
+	}
+	// Find the match at cursor position
+	cursor := e.editorView.CursorPosition()
+	s, err := search.NewInFileSearch(query, false, false)
+	if err != nil {
+		return
+	}
+	matches := s.FindAll(tab.Buffer.Text())
+	for _, m := range matches {
+		if m.Line == cursor.Line && m.Col == cursor.Col {
+			tab.Buffer.Delete(m.Line, m.Col, m.Length)
+			tab.Buffer.Insert(m.Line, m.Col, replacement)
+			break
+		}
+	}
+	// Re-search to update matches
+	e.performSearch(query)
+}
+
+func (e *Editor) performReplaceAll(query, replacement string) {
+	tab := e.tabs.Active()
+	if tab == nil {
+		return
+	}
+	s, err := search.NewInFileSearch(query, false, false)
+	if err != nil {
+		return
+	}
+	matches := s.FindAll(tab.Buffer.Text())
+	// Replace from bottom to top so offsets don't shift
+	for i := len(matches) - 1; i >= 0; i-- {
+		m := matches[i]
+		tab.Buffer.Delete(m.Line, m.Col, m.Length)
+		tab.Buffer.Insert(m.Line, m.Col, replacement)
+	}
+	e.performSearch(query)
 }
 
 func detectLanguage(path string) string {

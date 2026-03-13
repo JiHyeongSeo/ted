@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/seoji/ted/internal/buffer"
@@ -14,11 +15,12 @@ type EditorView struct {
 	BaseComponent
 	buf          *buffer.Buffer
 	theme        *syntax.Theme
-	cursor       types.Position   // cursor position in the buffer
-	scrollY      int              // first visible line
-	scrollX      int              // horizontal scroll offset
-	selection    *types.Selection // current selection range
-	lineNumWidth int              // width of line number gutter
+	highlighter  *syntax.Highlighter // syntax highlighter for the current language
+	cursor       types.Position      // cursor position in the buffer
+	scrollY      int                 // first visible line
+	scrollX      int                 // horizontal scroll offset
+	selection    *types.Selection    // current selection range
+	lineNumWidth int                 // width of line number gutter
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -83,26 +85,44 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		lineText := e.buf.Line(lineNum)
 		textStyle := e.theme.UIStyle("default")
 
+		// Convert line to runes for proper multi-byte character handling
+		lineRunes := []rune(lineText)
+
+		// Get syntax highlighting tokens for this line
+		var tokens []syntax.Token
+		if e.highlighter != nil {
+			tokens = e.highlighter.HighlightLine(lineText)
+		}
+
 		for col := 0; col < textAreaWidth; col++ {
 			screenX := textAreaX + col
 			screenY := bounds.Y + row
-			bufferCol := e.scrollX + col
+			runeCol := e.scrollX + col
 
 			style := textStyle
 			var ch rune = ' '
 
+			// Apply syntax highlighting if available
+			if runeCol < len(lineRunes) {
+				ch = lineRunes[runeCol]
+				// Find which token this column falls into
+				if e.highlighter != nil {
+					for _, token := range tokens {
+						if runeCol >= token.Start && runeCol < token.Start+token.Length {
+							style = e.highlighter.StyleForToken(token.Type)
+							break
+						}
+					}
+				}
+			}
+
 			// Check if this position is in selection
-			if e.selection != nil && e.isInSelection(lineNum, bufferCol) {
+			if e.selection != nil && e.isInSelection(lineNum, runeCol) {
 				style = e.theme.UIStyle("selection")
 			}
 
-			// Get character at this position
-			if bufferCol < len(lineText) {
-				ch = rune(lineText[bufferCol])
-			}
-
 			// Highlight cursor position
-			if lineNum == e.cursor.Line && bufferCol == e.cursor.Col {
+			if lineNum == e.cursor.Line && runeCol == e.cursor.Col {
 				style = style.Reverse(true)
 			}
 
@@ -229,14 +249,14 @@ func (e *EditorView) MoveCursorLeft() {
 	} else if e.cursor.Line > 0 {
 		// Move to end of previous line
 		e.cursor.Line--
-		e.cursor.Col = len(e.buf.Line(e.cursor.Line))
+		e.cursor.Col = e.runeLen(e.cursor.Line)
 	}
 	e.ensureCursorVisible()
 }
 
 // MoveCursorRight moves the cursor right one character.
 func (e *EditorView) MoveCursorRight() {
-	lineLen := len(e.buf.Line(e.cursor.Line))
+	lineLen := e.runeLen(e.cursor.Line)
 	if e.cursor.Col < lineLen {
 		e.cursor.Col++
 	} else if e.cursor.Line < e.buf.LineCount()-1 {
@@ -255,7 +275,7 @@ func (e *EditorView) MoveCursorToLineStart() {
 
 // MoveCursorToLineEnd moves the cursor to the end of the current line.
 func (e *EditorView) MoveCursorToLineEnd() {
-	e.cursor.Col = len(e.buf.Line(e.cursor.Line))
+	e.cursor.Col = e.runeLen(e.cursor.Line)
 	e.ensureCursorVisible()
 }
 
@@ -270,7 +290,7 @@ func (e *EditorView) MoveCursorToBufferStart() {
 func (e *EditorView) MoveCursorToBufferEnd() {
 	if e.buf.LineCount() > 0 {
 		e.cursor.Line = e.buf.LineCount() - 1
-		e.cursor.Col = len(e.buf.Line(e.cursor.Line))
+		e.cursor.Col = e.runeLen(e.cursor.Line)
 	} else {
 		e.cursor.Line = 0
 		e.cursor.Col = 0
@@ -286,10 +306,26 @@ func (e *EditorView) clampCursorCol() {
 			e.cursor.Line = 0
 		}
 	}
-	lineLen := len(e.buf.Line(e.cursor.Line))
+	lineLen := e.runeLen(e.cursor.Line)
 	if e.cursor.Col > lineLen {
 		e.cursor.Col = lineLen
 	}
+}
+
+// runeLen returns the number of runes in a line.
+func (e *EditorView) runeLen(line int) int {
+	return utf8.RuneCountInString(e.buf.Line(line))
+}
+
+// runeColToByteCol converts a rune-based column to a byte offset within a line.
+func (e *EditorView) runeColToByteCol(line, runeCol int) int {
+	lineText := e.buf.Line(line)
+	byteOffset := 0
+	for i := 0; i < runeCol && byteOffset < len(lineText); i++ {
+		_, size := utf8.DecodeRuneInString(lineText[byteOffset:])
+		byteOffset += size
+	}
+	return byteOffset
 }
 
 // ensureCursorVisible adjusts scroll position to keep cursor visible.
@@ -320,7 +356,8 @@ func (e *EditorView) InsertChar(ch rune) {
 	if e.buf.ReadOnly {
 		return
 	}
-	e.buf.Insert(e.cursor.Line, e.cursor.Col, string(ch))
+	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+	e.buf.Insert(e.cursor.Line, byteCol, string(ch))
 	e.cursor.Col++
 	e.ensureCursorVisible()
 }
@@ -330,7 +367,8 @@ func (e *EditorView) InsertNewline() {
 	if e.buf.ReadOnly {
 		return
 	}
-	e.buf.Insert(e.cursor.Line, e.cursor.Col, "\n")
+	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+	e.buf.Insert(e.cursor.Line, byteCol, "\n")
 	e.cursor.Line++
 	e.cursor.Col = 0
 	e.ensureCursorVisible()
@@ -342,14 +380,18 @@ func (e *EditorView) DeleteBack() {
 		return
 	}
 	if e.cursor.Col > 0 {
-		e.buf.Delete(e.cursor.Line, e.cursor.Col-1, 1)
+		byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col-1)
+		lineText := e.buf.Line(e.cursor.Line)
+		_, size := utf8.DecodeRuneInString(lineText[byteCol:])
+		e.buf.Delete(e.cursor.Line, byteCol, size)
 		e.cursor.Col--
 	} else if e.cursor.Line > 0 {
 		// Delete newline at end of previous line
-		prevLineLen := len(e.buf.Line(e.cursor.Line - 1))
-		e.buf.Delete(e.cursor.Line-1, prevLineLen, 1)
+		prevRuneLen := e.runeLen(e.cursor.Line - 1)
+		prevByteLen := len(e.buf.Line(e.cursor.Line - 1))
+		e.buf.Delete(e.cursor.Line-1, prevByteLen, 1)
 		e.cursor.Line--
-		e.cursor.Col = prevLineLen
+		e.cursor.Col = prevRuneLen
 	}
 	e.ensureCursorVisible()
 }
@@ -359,12 +401,16 @@ func (e *EditorView) DeleteForward() {
 	if e.buf.ReadOnly {
 		return
 	}
-	lineLen := len(e.buf.Line(e.cursor.Line))
-	if e.cursor.Col < lineLen {
-		e.buf.Delete(e.cursor.Line, e.cursor.Col, 1)
+	lineRuneLen := e.runeLen(e.cursor.Line)
+	if e.cursor.Col < lineRuneLen {
+		byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+		lineText := e.buf.Line(e.cursor.Line)
+		_, size := utf8.DecodeRuneInString(lineText[byteCol:])
+		e.buf.Delete(e.cursor.Line, byteCol, size)
 	} else if e.cursor.Line < e.buf.LineCount()-1 {
 		// Delete newline at end of current line
-		e.buf.Delete(e.cursor.Line, e.cursor.Col, 1)
+		byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+		e.buf.Delete(e.cursor.Line, byteCol, 1)
 	}
 	e.ensureCursorVisible()
 }
@@ -429,4 +475,13 @@ func (e *EditorView) SetCursorPosition(pos types.Position) {
 // SetScrollY sets the vertical scroll offset.
 func (e *EditorView) SetScrollY(y int) {
 	e.scrollY = y
+}
+
+// SetLanguage sets the language for syntax highlighting.
+func (e *EditorView) SetLanguage(language string) {
+	if e.theme == nil {
+		e.highlighter = nil
+		return
+	}
+	e.highlighter = syntax.NewHighlighter(e.theme, language)
 }

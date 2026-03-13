@@ -525,3 +525,151 @@ func TestScrollPosition(t *testing.T) {
 		t.Errorf("ScrollPosition should reflect scroll values, got (%d,%d)", y, x)
 	}
 }
+
+// TestEditorViewHighlighting tests syntax highlighting integration.
+func TestEditorViewHighlighting(t *testing.T) {
+	// Create a buffer with Go code
+	goCode := "package main\n\nfunc main() {\n\tprintln(\"Hello\")\n}\n"
+	buf := buffer.NewBuffer(goCode)
+	theme := syntax.DefaultTheme()
+
+	// Create editor view
+	ev := NewEditorView(buf, theme)
+
+	// Initially no highlighter
+	if ev.highlighter != nil {
+		t.Error("Highlighter should be nil initially")
+	}
+
+	// Set language to "go"
+	ev.SetLanguage("go")
+
+	// Highlighter should now be set
+	if ev.highlighter == nil {
+		t.Fatal("Highlighter should be non-nil after SetLanguage(\"go\")")
+	}
+
+	// Test that highlighter can process a line
+	tokens := ev.highlighter.HighlightLine("package main")
+	if len(tokens) == 0 {
+		t.Error("Expected tokens for Go code, got none")
+	}
+
+	// Verify a keyword token exists
+	foundKeyword := false
+	for _, token := range tokens {
+		if token.Type == syntax.TokenKeyword {
+			foundKeyword = true
+			break
+		}
+	}
+	if !foundKeyword {
+		t.Error("Expected to find keyword token in 'package main'")
+	}
+
+	// Test setting to nil theme
+	ev.theme = nil
+	ev.SetLanguage("go")
+	if ev.highlighter != nil {
+		t.Error("Highlighter should be nil when theme is nil")
+	}
+}
+
+// TestUTF8RuneHandling tests proper handling of multi-byte UTF-8 characters.
+func TestUTF8RuneHandling(t *testing.T) {
+	// Create buffer with Korean text
+	buf := buffer.NewBuffer("안녕하세요\nworld")
+	theme := syntax.DefaultTheme()
+	ev := NewEditorView(buf, theme)
+	ev.SetBounds(types.Rect{X: 0, Y: 0, Width: 80, Height: 24})
+
+	// Verify runeLen returns correct rune count (not byte count)
+	// "안녕하세요" is 5 runes but 15 bytes
+	runeLenLine0 := ev.runeLen(0)
+	if runeLenLine0 != 5 {
+		t.Errorf("runeLen for Korean line should be 5, got %d", runeLenLine0)
+	}
+
+	// Verify line 1 has 5 runes (ASCII)
+	runeLenLine1 := ev.runeLen(1)
+	if runeLenLine1 != 5 {
+		t.Errorf("runeLen for ASCII line should be 5, got %d", runeLenLine1)
+	}
+
+	// Move cursor right 5 times through Korean text
+	for i := 0; i < 5; i++ {
+		ev.MoveCursorRight()
+	}
+
+	// Cursor should be at column 5 (end of Korean line)
+	if ev.cursor.Col != 5 {
+		t.Errorf("After moving right 5 times, cursor col should be 5, got %d", ev.cursor.Col)
+	}
+
+	// Should still be on line 0
+	if ev.cursor.Line != 0 {
+		t.Errorf("After moving right 5 times, should still be on line 0, got %d", ev.cursor.Line)
+	}
+
+	// One more right should move to next line
+	ev.MoveCursorRight()
+	if ev.cursor.Line != 1 || ev.cursor.Col != 0 {
+		t.Errorf("After moving right once more, should be at (1,0), got (%d,%d)",
+			ev.cursor.Line, ev.cursor.Col)
+	}
+
+	// Move back to Korean line
+	ev.MoveCursorLeft()
+	if ev.cursor.Line != 0 || ev.cursor.Col != 5 {
+		t.Errorf("After moving left, should be at (0,5), got (%d,%d)",
+			ev.cursor.Line, ev.cursor.Col)
+	}
+
+	// Test insertion of Korean character
+	ev.cursor.Line = 0
+	ev.cursor.Col = 2
+	ev.InsertChar('X')
+
+	// Line should now be "안녕X하세요"
+	line := buf.Line(0)
+	expectedRunes := []rune("안녕X하세요")
+	actualRunes := []rune(line)
+
+	if len(actualRunes) != 6 {
+		t.Errorf("After inserting X, line should have 6 runes, got %d", len(actualRunes))
+	}
+
+	for i, r := range expectedRunes {
+		if i >= len(actualRunes) {
+			t.Errorf("Line too short, expected rune at position %d", i)
+			break
+		}
+		if actualRunes[i] != r {
+			t.Errorf("At position %d, expected rune %c, got %c", i, r, actualRunes[i])
+		}
+	}
+
+	// Test deletion in Korean text
+	ev.cursor.Line = 0
+	ev.cursor.Col = 3 // at '하' after the X we just inserted
+	ev.DeleteBack()
+
+	// Line should now be "안녕하세요" again (X removed)
+	line = buf.Line(0)
+	actualRunes = []rune(line)
+	expectedRunes = []rune("안녕하세요")
+
+	if len(actualRunes) != 5 {
+		t.Errorf("After deleting X, line should have 5 runes, got %d", len(actualRunes))
+	}
+
+	for i, r := range expectedRunes {
+		if i >= len(actualRunes) {
+			t.Errorf("Line too short, expected rune at position %d", i)
+			break
+		}
+		if actualRunes[i] != r {
+			t.Errorf("At position %d, expected rune %c, got %c", i, r, actualRunes[i])
+		}
+	}
+}
