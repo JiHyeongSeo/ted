@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/gdamore/tcell/v2"
@@ -76,7 +77,13 @@ func (tb *TabBar) Render(screen tcell.Screen) {
 			title = "[No Name]"
 		}
 
-		label := " " + title
+		// Show Alt+N shortcut number for first 9 tabs
+		numPrefix := ""
+		if i < 9 {
+			numPrefix = fmt.Sprintf("%d:", i+1)
+		}
+
+		label := " " + numPrefix + title
 		if tab.Dirty {
 			label += " ●"
 		}
@@ -115,7 +122,11 @@ func (tb *TabBar) HandleEvent(ev tcell.Event) bool {
 					if title == "" {
 						title = "[No Name]"
 					}
-					tabWidth := len(" "+title+" ") + 1 // +1 for separator
+					numPrefix := ""
+				if i < 9 {
+					numPrefix = fmt.Sprintf("%d:", i+1)
+				}
+				tabWidth := len(" "+numPrefix+title+" ") + 1 // +1 for separator
 					if tab.Dirty {
 						tabWidth += 2
 					}

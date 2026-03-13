@@ -10,8 +10,8 @@ import (
 
 func TestDefaultTheme(t *testing.T) {
 	theme := DefaultTheme()
-	if theme.Name != "Default Dark" {
-		t.Errorf("expected name 'Default Dark', got %q", theme.Name)
+	if theme.Name != "Tango Dark" {
+		t.Errorf("expected name 'Tango Dark', got %q", theme.Name)
 	}
 	if _, ok := theme.Colors["keyword"]; !ok {
 		t.Error("expected keyword color")

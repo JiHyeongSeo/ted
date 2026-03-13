@@ -53,6 +53,11 @@ func (sb *SearchBar) IsVisible() bool {
 	return sb.visible
 }
 
+// ReplaceMode returns whether the search bar is in replace mode.
+func (sb *SearchBar) ReplaceMode() bool {
+	return sb.replaceMode
+}
+
 // Query returns the current search query.
 func (sb *SearchBar) Query() string {
 	return sb.query

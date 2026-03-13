@@ -11,20 +11,28 @@ import (
 	"github.com/seoji/ted/internal/types"
 )
 
+// SearchHighlight represents a highlighted search match in the editor.
+type SearchHighlight struct {
+	Line   int
+	Col    int // rune-based column
+	Length int // length in runes
+}
+
 // EditorView renders a text buffer with line numbers, cursor, and scrolling.
 type EditorView struct {
 	BaseComponent
-	buf           *buffer.Buffer
-	theme         *syntax.Theme
-	highlighter   *syntax.Highlighter // syntax highlighter for the current language
-	cursor        types.Position      // cursor position (rune-based col)
-	scrollY       int                 // first visible line
-	scrollX       int                 // horizontal scroll offset (display columns)
-	selection     *types.Selection    // current selection range
-	lineNumWidth  int                 // width of line number gutter
-	cursorScreenX int                 // last computed screen X of cursor (for ShowCursor)
-	cursorScreenY int                 // last computed screen Y of cursor
-	clipboard     string              // internal clipboard
+	buf              *buffer.Buffer
+	theme            *syntax.Theme
+	highlighter      *syntax.Highlighter // syntax highlighter for the current language
+	cursor           types.Position      // cursor position (rune-based col)
+	scrollY          int                 // first visible line
+	scrollX          int                 // horizontal scroll offset (display columns)
+	selection        *types.Selection    // current selection range
+	lineNumWidth     int                 // width of line number gutter
+	cursorScreenX    int                 // last computed screen X of cursor (for ShowCursor)
+	cursorScreenY    int                 // last computed screen Y of cursor
+	clipboard        string              // internal clipboard
+	searchHighlights []SearchHighlight   // search match highlights
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -52,13 +60,20 @@ func (e *EditorView) updateLineNumWidth() {
 	e.lineNumWidth = width + 1 // +1 for padding
 }
 
+// tabWidth is the number of spaces per tab stop.
+const tabWidth = 4
+
 // runeDisplayWidth returns the display width of a line up to runeCol runes.
 func (e *EditorView) runeDisplayWidth(line int, runeCol int) int {
 	lineText := e.buf.Line(line)
 	runes := []rune(lineText)
 	w := 0
 	for i := 0; i < runeCol && i < len(runes); i++ {
-		w += runewidth.RuneWidth(runes[i])
+		if runes[i] == '\t' {
+			w += tabWidth - (w % tabWidth)
+		} else {
+			w += runewidth.RuneWidth(runes[i])
+		}
 	}
 	return w
 }
@@ -119,7 +134,14 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		screenCol := 0 // display column relative to textAreaX
 		for runeIdx := 0; runeIdx < len(lineRunes); runeIdx++ {
 			ch := lineRunes[runeIdx]
-			w := runewidth.RuneWidth(ch)
+
+			// Calculate display width for this rune
+			var w int
+			if ch == '\t' {
+				w = tabWidth - (screenCol % tabWidth)
+			} else {
+				w = runewidth.RuneWidth(ch)
+			}
 
 			// Skip runes that are scrolled off to the left
 			if screenCol+w <= e.scrollX {
@@ -144,7 +166,17 @@ func (e *EditorView) Render(screen tcell.Screen) {
 				}
 			}
 
-			// Selection
+			// Search highlights
+			if len(e.searchHighlights) > 0 {
+				for _, h := range e.searchHighlights {
+					if h.Line == lineNum && runeIdx >= h.Col && runeIdx < h.Col+h.Length {
+						style = style.Background(tcell.ColorYellow).Foreground(tcell.ColorBlack)
+						break
+					}
+				}
+			}
+
+			// Selection (overrides search highlight)
 			if e.selection != nil && e.isInSelection(lineNum, runeIdx) {
 				style = e.theme.UIStyle("selection")
 			}
@@ -157,14 +189,16 @@ func (e *EditorView) Render(screen tcell.Screen) {
 
 			screenX := textAreaX + dispCol
 
-			// Handle wide chars that would be partially clipped at right edge
-			if dispCol+w > textAreaWidth {
-				// Draw placeholder for clipped wide char
+			if ch == '\t' {
+				// Render tab as spaces
+				for i := 0; i < w && dispCol+i < textAreaWidth; i++ {
+					screen.SetContent(screenX+i, bounds.Y+row, ' ', nil, style)
+				}
+			} else if dispCol+w > textAreaWidth {
+				// Handle wide chars that would be partially clipped at right edge
 				screen.SetContent(screenX, bounds.Y+row, ' ', nil, style)
 			} else {
 				screen.SetContent(screenX, bounds.Y+row, ch, nil, style)
-				// tcell handles wide chars: the next cell is automatically
-				// occupied, but we should not write to it
 			}
 
 			screenCol += w
@@ -726,6 +760,62 @@ func (e *EditorView) SetCursorPosition(pos types.Position) {
 // SetScrollY sets the vertical scroll offset.
 func (e *EditorView) SetScrollY(y int) {
 	e.scrollY = y
+}
+
+// SetSearchHighlights sets the search match highlights.
+func (e *EditorView) SetSearchHighlights(highlights []SearchHighlight) {
+	e.searchHighlights = highlights
+}
+
+// ClearSearchHighlights removes all search highlights.
+func (e *EditorView) ClearSearchHighlights() {
+	e.searchHighlights = nil
+}
+
+// HandleMouseClick moves the cursor to the screen position clicked.
+func (e *EditorView) HandleMouseClick(screenX, screenY int) {
+	bounds := e.Bounds()
+	textAreaX := bounds.X + e.lineNumWidth
+
+	// Calculate line from screen Y
+	row := screenY - bounds.Y
+	line := e.scrollY + row
+	if line < 0 {
+		line = 0
+	}
+	if line >= e.buf.LineCount() {
+		line = e.buf.LineCount() - 1
+	}
+
+	// Calculate rune column from screen X
+	clickDispCol := (screenX - textAreaX) + e.scrollX
+	if clickDispCol < 0 {
+		clickDispCol = 0
+	}
+
+	// Walk through the line to find the rune at this display column
+	lineRunes := []rune(e.buf.Line(line))
+	dispCol := 0
+	runeCol := 0
+	for i, ch := range lineRunes {
+		var w int
+		if ch == '\t' {
+			w = tabWidth - (dispCol % tabWidth)
+		} else {
+			w = runewidth.RuneWidth(ch)
+		}
+		if dispCol+w > clickDispCol {
+			runeCol = i
+			break
+		}
+		dispCol += w
+		runeCol = i + 1
+	}
+
+	e.ClearSelection()
+	e.cursor = types.Position{Line: line, Col: runeCol}
+	e.clampCursorCol()
+	e.ensureCursorVisible()
 }
 
 // SetLanguage sets the language for syntax highlighting.

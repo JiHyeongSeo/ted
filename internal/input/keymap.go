@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -145,6 +146,15 @@ func eventToKeyEvent(ev *tcell.EventKey) KeyEvent {
 	// tcell normalizes Ctrl+letter to key codes (e.g., Ctrl+S -> Key=83).
 	// Normalize back to KeyRune + rune + ModCtrl to match our parsed format.
 	if mod&tcell.ModCtrl != 0 && key != tcell.KeyRune && r != 0 {
+		// Normalize rune to lowercase for consistent matching
+		r = unicode.ToLower(r)
+		return KeyEvent{Key: tcell.KeyRune, Rune: r, Mod: mod}
+	}
+
+	// For Shift+letter combos, tcell sends uppercase rune.
+	// Normalize to lowercase and keep Shift modifier.
+	if mod&tcell.ModShift != 0 && key == tcell.KeyRune && unicode.IsUpper(r) {
+		r = unicode.ToLower(r)
 		return KeyEvent{Key: tcell.KeyRune, Rune: r, Mod: mod}
 	}
 

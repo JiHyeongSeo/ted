@@ -33,39 +33,39 @@ func ParseTheme(data []byte) (*Theme, error) {
 	return t, nil
 }
 
-// DefaultTheme returns a built-in dark theme.
+// DefaultTheme returns a built-in Tango Dark theme.
 func DefaultTheme() *Theme {
 	return &Theme{
-		Name: "Default Dark",
+		Name: "Tango Dark",
 		Colors: map[string]string{
-			"keyword":     "#cba6f7",
-			"string":      "#a6e3a1",
-			"function":    "#89b4fa",
-			"comment":     "#585b70",
-			"type":        "#f9e2af",
-			"number":      "#fab387",
-			"operator":    "#89dceb",
-			"variable":    "#cdd6f4",
-			"constant":    "#fab387",
-			"property":    "#89b4fa",
-			"punctuation": "#bac2de",
+			"keyword":     "#ad7fa8", // Tango plum
+			"string":      "#73d216", // Tango chameleon
+			"function":    "#729fcf", // Tango sky blue
+			"comment":     "#888a85", // Tango aluminium 4
+			"type":        "#fce94f", // Tango butter
+			"number":      "#fcaf3e", // Tango orange
+			"operator":    "#34e2e2", // Tango cyan
+			"variable":    "#d3d7cf", // Tango aluminium 2
+			"constant":    "#fcaf3e", // Tango orange
+			"property":    "#729fcf", // Tango sky blue
+			"punctuation": "#babdb6", // Tango aluminium 3
 		},
 		UI: map[string]string{
-			"background":          "#1e1e2e",
-			"foreground":          "#cdd6f4",
-			"cursor":              "#f5e0dc",
-			"selection":           "#45475a",
-			"lineNumber":          "#585b70",
-			"lineNumberActive":    "#cdd6f4",
-			"statusBar":           "#181825",
-			"statusBarForeground": "#cdd6f4",
-			"tabActive":           "#1e1e2e",
-			"tabInactive":         "#181825",
-			"sidebar":             "#181825",
-			"panelBackground":     "#181825",
-			"errorForeground":     "#f38ba8",
-			"warningForeground":   "#f9e2af",
-			"matchHighlight":      "#f9e2af",
+			"background":          "#2e3436", // Tango aluminium 7
+			"foreground":          "#d3d7cf", // Tango aluminium 2
+			"cursor":              "#eeeeec", // Tango aluminium 1
+			"selection":           "#4e585d", // slightly lighter bg
+			"lineNumber":          "#555753", // Tango aluminium 5
+			"lineNumberActive":    "#babdb6", // Tango aluminium 3
+			"statusBar":           "#1c1f20", // darker than bg
+			"statusBarForeground": "#d3d7cf",
+			"tabActive":           "#2e3436", // same as bg
+			"tabInactive":         "#1c1f20", // darker
+			"sidebar":             "#1c1f20",
+			"panelBackground":     "#1c1f20",
+			"errorForeground":     "#ef2929", // Tango scarlet red
+			"warningForeground":   "#fce94f", // Tango butter
+			"matchHighlight":      "#fce94f",
 		},
 	}
 }
