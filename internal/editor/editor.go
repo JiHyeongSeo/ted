@@ -398,6 +398,15 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+p", "palette.open", "")
 	e.keymap.Bind("ctrl+b", "sidebar.toggle", "")
 	e.keymap.Bind("ctrl+j", "panel.toggle", "")
+	e.keymap.Bind("alt+1", "tab.goto.1", "")
+	e.keymap.Bind("alt+2", "tab.goto.2", "")
+	e.keymap.Bind("alt+3", "tab.goto.3", "")
+	e.keymap.Bind("alt+4", "tab.goto.4", "")
+	e.keymap.Bind("alt+5", "tab.goto.5", "")
+	e.keymap.Bind("alt+6", "tab.goto.6", "")
+	e.keymap.Bind("alt+7", "tab.goto.7", "")
+	e.keymap.Bind("alt+8", "tab.goto.8", "")
+	e.keymap.Bind("alt+9", "tab.goto.9", "")
 	e.keymap.Bind("f12", "lsp.goToDefinition", "")
 	e.keymap.Bind("shift+f12", "lsp.findReferences", "")
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
@@ -460,6 +469,13 @@ func (e *Editor) ExecuteCommand(name string) error {
 	case "tab.previous":
 		e.tabs.Previous()
 		e.syncViewToTab()
+	case "tab.goto.1", "tab.goto.2", "tab.goto.3", "tab.goto.4", "tab.goto.5",
+		"tab.goto.6", "tab.goto.7", "tab.goto.8", "tab.goto.9":
+		idx := int(name[len(name)-1]-'1') // "tab.goto.1" → 0
+		if idx >= 0 && idx < e.tabs.Count() {
+			e.tabs.SetActive(idx)
+			e.syncViewToTab()
+		}
 	case "sidebar.toggle":
 		if !e.layout.SidebarVisible() {
 			// Hidden → show + focus sidebar
