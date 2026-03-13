@@ -2,13 +2,6 @@ package view
 
 import "github.com/seoji/ted/internal/types"
 
-// LayoutRegion defines a named area with sizing rules.
-type LayoutRegion struct {
-	Name    string
-	Fixed   int  // fixed size in the layout direction (0 = flex)
-	Visible bool
-}
-
 // Layout calculates component bounds from total screen dimensions.
 type Layout struct {
 	sidebarWidth    int

@@ -122,6 +122,20 @@ func (pt *PieceTable) Insert(offset int, text string) Edit {
 // Delete removes length bytes starting at offset.
 // Returns the edit operation for undo support.
 func (pt *PieceTable) Delete(offset, length int) Edit {
+	totalLen := pt.Length()
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > totalLen {
+		offset = totalLen
+	}
+	if length < 0 {
+		length = 0
+	}
+	if offset+length > totalLen {
+		length = totalLen - offset
+	}
+
 	deletedText := pt.TextRange(offset, length)
 	edit := Edit{
 		Type:   EditDelete,

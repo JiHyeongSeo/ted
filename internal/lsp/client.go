@@ -12,23 +12,25 @@ import (
 
 // Client is a JSON-RPC 2.0 client for LSP communication.
 type Client struct {
-	reader   *bufio.Reader
-	writer   io.Writer
-	writeMu  sync.Mutex         // protects writer
-	pendMu   sync.Mutex         // protects pending map and nextID
-	nextID   int
-	pending  map[int]chan *Response
-	onNotify func(method string, params json.RawMessage)
-	done     chan struct{}
+	reader    *bufio.Reader
+	rawReader io.Reader
+	writer    io.Writer
+	writeMu   sync.Mutex         // protects writer
+	pendMu    sync.Mutex         // protects pending map and nextID
+	nextID    int
+	pending   map[int]chan *Response
+	onNotify  func(method string, params json.RawMessage)
+	done      chan struct{}
 }
 
 // NewClient creates a new LSP client using the given reader/writer pair.
 func NewClient(r io.Reader, w io.Writer) *Client {
 	return &Client{
-		reader:  bufio.NewReader(r),
-		writer:  w,
-		pending: make(map[int]chan *Response),
-		done:    make(chan struct{}),
+		reader:    bufio.NewReader(r),
+		rawReader: r,
+		writer:    w,
+		pending:   make(map[int]chan *Response),
+		done:      make(chan struct{}),
 	}
 }
 
@@ -90,12 +92,17 @@ func (c *Client) Notify(method string, params interface{}) error {
 	return c.writeMessage(notif)
 }
 
-// Close signals the client to stop.
+// Close signals the client to stop and cleans up resources.
 func (c *Client) Close() {
-	select {
-	case <-c.done:
-	default:
+	// Close the underlying reader to unblock Start()'s read loop.
+	if rc, ok := c.rawReader.(io.Closer); ok {
+		rc.Close()
 	}
+	if wc, ok := c.writer.(io.Closer); ok {
+		wc.Close()
+	}
+	// Wait for Start() to finish (it closes done when it returns).
+	<-c.done
 }
 
 func (c *Client) writeMessage(msg interface{}) error {
