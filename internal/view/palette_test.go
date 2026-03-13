@@ -23,7 +23,7 @@ func TestPaletteShowHide(t *testing.T) {
 	}
 }
 
-func TestPaletteFiltering(t *testing.T) {
+func TestPaletteCommandFiltering(t *testing.T) {
 	theme := syntax.DefaultTheme()
 	p := NewCommandPalette(theme)
 	p.SetItems([]PaletteItem{
@@ -33,7 +33,10 @@ func TestPaletteFiltering(t *testing.T) {
 	})
 	p.Show()
 
-	// No query - all items
+	// Type ">" to enter command mode
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, '>', tcell.ModNone))
+
+	// No additional query - all command items
 	if len(p.FilteredItems()) != 3 {
 		t.Errorf("expected 3 items, got %d", len(p.FilteredItems()))
 	}
@@ -43,8 +46,8 @@ func TestPaletteFiltering(t *testing.T) {
 	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone))
 	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, 'v', tcell.ModNone))
 
-	if p.Query() != "sav" {
-		t.Errorf("expected query 'sav', got %q", p.Query())
+	if p.Query() != ">sav" {
+		t.Errorf("expected query '>sav', got %q", p.Query())
 	}
 
 	filtered := p.FilteredItems()
@@ -56,13 +59,41 @@ func TestPaletteFiltering(t *testing.T) {
 	}
 }
 
+func TestPaletteFileFiltering(t *testing.T) {
+	theme := syntax.DefaultTheme()
+	p := NewCommandPalette(theme)
+	p.SetFileItems([]PaletteItem{
+		{Label: "main.go", FilePath: "/project/main.go"},
+		{Label: "editor.go", FilePath: "/project/editor.go"},
+		{Label: "buffer.go", FilePath: "/project/buffer.go"},
+	})
+	p.Show()
+
+	// Default mode is file search - all file items shown
+	if len(p.FilteredItems()) != 3 {
+		t.Errorf("expected 3 file items, got %d", len(p.FilteredItems()))
+	}
+
+	// Type to filter files
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, 'm', tcell.ModNone))
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone))
+
+	filtered := p.FilteredItems()
+	if len(filtered) < 1 {
+		t.Fatal("expected at least 1 filtered file for 'ma'")
+	}
+	if filtered[0].FilePath != "/project/main.go" {
+		t.Errorf("expected main.go as top match, got %q", filtered[0].Label)
+	}
+}
+
 func TestPaletteNavigation(t *testing.T) {
 	theme := syntax.DefaultTheme()
 	p := NewCommandPalette(theme)
-	p.SetItems([]PaletteItem{
-		{Label: "A", Command: "a"},
-		{Label: "B", Command: "b"},
-		{Label: "C", Command: "c"},
+	p.SetFileItems([]PaletteItem{
+		{Label: "A", FilePath: "/a"},
+		{Label: "B", FilePath: "/b"},
+		{Label: "C", FilePath: "/c"},
 	})
 	p.Show()
 
@@ -100,6 +131,8 @@ func TestPaletteSelect(t *testing.T) {
 	})
 
 	p.Show()
+	// Enter command mode and select
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, '>', tcell.ModNone))
 	p.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
 	if selected.Command != "test.cmd" {
@@ -107,6 +140,25 @@ func TestPaletteSelect(t *testing.T) {
 	}
 	if p.IsVisible() {
 		t.Error("palette should hide after selection")
+	}
+}
+
+func TestPaletteGoToLine(t *testing.T) {
+	theme := syntax.DefaultTheme()
+	p := NewCommandPalette(theme)
+
+	var gotLine int
+	p.SetOnGoToLine(func(line int) { gotLine = line })
+
+	p.Show()
+	// Type ":42"
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, ':', tcell.ModNone))
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, '4', tcell.ModNone))
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, '2', tcell.ModNone))
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	if gotLine != 42 {
+		t.Errorf("expected go to line 42, got %d", gotLine)
 	}
 }
 
@@ -131,7 +183,7 @@ func TestPaletteDismiss(t *testing.T) {
 func TestPaletteBackspace(t *testing.T) {
 	theme := syntax.DefaultTheme()
 	p := NewCommandPalette(theme)
-	p.SetItems([]PaletteItem{{Label: "Test", Command: "test"}})
+	p.SetFileItems([]PaletteItem{{Label: "Test", FilePath: "/test"}})
 	p.Show()
 
 	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone))

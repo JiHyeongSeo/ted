@@ -24,6 +24,7 @@ type SearchBar struct {
 	onReplace       func(query, replacement string)
 	onReplaceAll    func(query, replacement string)
 	onDismiss       func()
+	onNavigate      func(match search.Match)
 }
 
 // NewSearchBar creates a new SearchBar.
@@ -107,6 +108,11 @@ func (sb *SearchBar) SetOnDismiss(fn func()) {
 	sb.onDismiss = fn
 }
 
+// SetOnNavigate sets the callback for navigating to a match (Enter/Shift+Enter).
+func (sb *SearchBar) SetOnNavigate(fn func(match search.Match)) {
+	sb.onNavigate = fn
+}
+
 // drawRunes draws runes to the screen with proper wide character handling.
 // Returns the next x position.
 func drawRunes(screen tcell.Screen, x, y, maxX int, runes []rune, style tcell.Style) int {
@@ -180,10 +186,18 @@ func (sb *SearchBar) HandleEvent(ev tcell.Event) bool {
 	case tcell.KeyEnter:
 		if sb.cursorInReplace && sb.onReplace != nil {
 			sb.onReplace(string(sb.query), string(sb.replacement))
-		} else {
-			// Move to next match
-			if len(sb.matches) > 0 {
+		} else if len(sb.matches) > 0 {
+			// Shift+Enter = previous, Enter = next
+			if keyEv.Modifiers()&tcell.ModShift != 0 {
+				sb.currentMatch--
+				if sb.currentMatch < 0 {
+					sb.currentMatch = len(sb.matches) - 1
+				}
+			} else {
 				sb.currentMatch = (sb.currentMatch + 1) % len(sb.matches)
+			}
+			if sb.onNavigate != nil {
+				sb.onNavigate(sb.matches[sb.currentMatch])
 			}
 		}
 		return true

@@ -36,6 +36,8 @@ type Editor struct {
 	palette    *view.CommandPalette
 	searchBar    *view.SearchBar
 	inputBar     *view.InputBar
+	autocomplete *view.AutocompletePopup
+	tooltip      *view.Tooltip
 	running      bool
 	sidebarFocus bool // true when sidebar has keyboard focus
 	quitPending  bool // true when quit requested with unsaved changes
@@ -44,13 +46,18 @@ type Editor struct {
 	projectRoot  string // root directory for project search and LSP
 	projectSearchResults []search.FileMatch // cached project search results
 	projectSearchQuery   string              // the query used for project search
+	recentFiles  *RecentFiles
+	lastHoverLine int // track last hover position to avoid duplicate requests
+	lastHoverCol  int
+	pythonEnv     *PythonEnv // current Python environment
 }
 
 // New creates a new Editor instance.
 func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	// Configure LSP servers
 	lspConfigs := map[string]lsp.ServerConfig{
-		"go": {Command: "gopls", Args: []string{"serve"}},
+		"go":     {Command: "gopls", Args: []string{"serve"}},
+		"python": {Command: "pylsp", Args: []string{}},
 	}
 
 	lspHandler := lsp.NewNotificationHandler()
@@ -78,6 +85,9 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.palette = view.NewCommandPalette(theme)
 	e.searchBar = view.NewSearchBar(theme)
 	e.inputBar = view.NewInputBar(theme)
+	e.autocomplete = view.NewAutocompletePopup(theme)
+	e.tooltip = view.NewTooltip(theme)
+	e.recentFiles = LoadRecentFiles()
 
 	// Wire LSP diagnostic handler
 	e.lspManager.SetDiagnosticHandler(func(uri string, diags []lsp.Diagnostic) {
@@ -96,7 +106,31 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.palette.SetOnSelect(func(item view.PaletteItem) {
 		e.ExecuteCommand(item.Command)
 	})
+	e.palette.SetOnFileOpen(func(path string) {
+		e.OpenFile(path)
+	})
+	e.palette.SetOnGoToLine(func(line int) {
+		if e.editorView != nil {
+			e.editorView.SetCursorPosition(types.Position{Line: line - 1, Col: 0})
+			e.syncTabFromView()
+		}
+	})
 	e.palette.SetOnDismiss(func() {})
+
+	// Wire autocomplete callbacks
+	e.autocomplete.SetOnSelect(func(item view.CompletionItem) {
+		if e.editorView != nil {
+			text := item.InsertText
+			if text == "" {
+				text = item.Label
+			}
+			for _, ch := range text {
+				e.editorView.InsertChar(ch)
+			}
+			e.syncTabFromView()
+		}
+	})
+	e.autocomplete.SetOnDismiss(func() {})
 
 	// Wire sidebar callback
 	e.sidebar.SetOnFileOpen(func(path string) {
@@ -117,6 +151,18 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	})
 	e.searchBar.SetOnReplaceAll(func(query, replacement string) {
 		e.performReplaceAll(query, replacement)
+	})
+	e.searchBar.SetOnNavigate(func(m search.Match) {
+		if e.editorView == nil {
+			return
+		}
+		tab := e.tabs.Active()
+		if tab == nil {
+			return
+		}
+		runeCol := byteColToRuneCol(tab.Buffer.Line(m.Line), m.Col)
+		e.editorView.SetCursorPosition(types.Position{Line: m.Line, Col: runeCol})
+		e.syncTabFromView()
 	})
 	e.searchBar.SetOnDismiss(func() {
 		// Clear search highlights when dismissed
@@ -141,6 +187,11 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 
 	e.registerCommands()
 
+	// Detect Python environment
+	if cwd, err := os.Getwd(); err == nil {
+		e.pythonEnv = DetectPythonEnv(cwd)
+	}
+
 	return e
 }
 
@@ -160,6 +211,9 @@ func (e *Editor) OpenFile(path string) error {
 	lang := detectLanguage(path)
 	e.tabs.Open(buf, lang)
 	e.syncViewToTab()
+
+	// Track recent files
+	e.recentFiles.Add(path)
 
 	// Start LSP if needed and notify didOpen
 	e.ensureLSP()
@@ -198,7 +252,8 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	// Set cursor style to thin beam (bar)
 	screen.SetCursorStyle(tcell.CursorStyleSteadyBar)
 
-	if e.tabs.Count() == 0 {
+	// Only open empty buffer if no directory was opened via sidebar
+	if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
 		e.OpenEmpty()
 	}
 
@@ -236,6 +291,10 @@ func (e *Editor) Run(screen tcell.Screen) error {
 		case *tcell.EventMouse:
 			e.handleMouseEvent(tev)
 			e.render()
+		case *tcell.EventInterrupt:
+			// Triggered by async LSP operations (autocomplete, hover)
+			_ = tev
+			e.render()
 		}
 	}
 
@@ -248,6 +307,18 @@ func (e *Editor) Stop() {
 }
 
 func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
+	// Tooltip gets dismissed on any key
+	if e.tooltip.IsVisible() {
+		e.tooltip.Hide()
+	}
+
+	// Autocomplete popup gets priority when visible
+	if e.autocomplete.IsVisible() {
+		if e.autocomplete.HandleEvent(ev) {
+			return
+		}
+	}
+
 	// Palette gets priority when visible
 	if e.palette.IsVisible() {
 		e.palette.HandleEvent(ev)
@@ -278,8 +349,12 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 
 	// Sidebar keyboard navigation when focused
 	if e.sidebarFocus && e.layout.SidebarVisible() {
-		// Escape returns focus to editor
+		// Escape or Alt+Right returns focus to editor
 		if ev.Key() == tcell.KeyEscape {
+			e.sidebarFocus = false
+			return
+		}
+		if ev.Key() == tcell.KeyRight && ev.Modifiers()&tcell.ModAlt != 0 {
 			e.sidebarFocus = false
 			return
 		}
@@ -289,10 +364,38 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		return
 	}
 
+	// Escape in editor: clear search highlights and close panel
+	if ev.Key() == tcell.KeyEscape {
+		if e.projectSearchQuery != "" || e.layout.PanelVisible() {
+			e.projectSearchQuery = ""
+			e.projectSearchResults = nil
+			if e.editorView != nil {
+				e.editorView.ClearSearchHighlights()
+			}
+			e.layout.SetPanelVisible(false)
+			return
+		}
+	}
+
 	// Pass to editor view for text input
 	if e.editorView != nil {
 		e.editorView.HandleEvent(ev)
 		e.syncTabFromView()
+		// Clear project search highlights on any edit action
+		if e.projectSearchQuery != "" {
+			k := ev.Key()
+			if k == tcell.KeyRune || k == tcell.KeyBackspace || k == tcell.KeyBackspace2 || k == tcell.KeyDelete || k == tcell.KeyEnter {
+				e.projectSearchQuery = ""
+				e.editorView.ClearSearchHighlights()
+			}
+		}
+		// Auto-trigger autocomplete after typing '.' or '::'
+		if ev.Key() == tcell.KeyRune {
+			ch := ev.Rune()
+			if ch == '.' || ch == ':' {
+				go e.lspAutocompleteAsync()
+			}
+		}
 	}
 }
 
@@ -348,13 +451,28 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		}
 	}
 
-	// Editor area click — move cursor
-	if btn == tcell.Button1 && e.editorView != nil {
+	// Editor area — click, scroll wheel, or hover
+	if e.editorView != nil {
 		eb := e.editorView.Bounds()
 		if mx >= eb.X && mx < eb.X+eb.Width && my >= eb.Y && my < eb.Y+eb.Height {
-			e.sidebarFocus = false
-			e.editorView.HandleMouseClick(mx, my)
-			e.syncTabFromView()
+			if btn == tcell.Button1 {
+				e.sidebarFocus = false
+				e.tooltip.Hide()
+				e.editorView.HandleMouseClick(mx, my)
+				e.syncTabFromView()
+			} else if btn == tcell.WheelUp {
+				e.tooltip.Hide()
+				e.editorView.ScrollUp(3)
+			} else if btn == tcell.WheelDown {
+				e.tooltip.Hide()
+				e.editorView.ScrollDown(3)
+			} else if btn == tcell.ButtonNone {
+				// Mouse hover — trigger LSP hover
+				e.handleMouseHover(mx, my)
+			}
+		} else {
+			// Mouse moved outside editor area
+			e.tooltip.Hide()
 		}
 	}
 }
@@ -374,8 +492,12 @@ func (e *Editor) render() {
 		e.tabBar.SetBounds(r)
 		tabs := make([]view.Tab, e.tabs.Count())
 		for i, t := range e.tabs.All() {
+			title := ""
+			if t.Buffer.Path() != "" {
+				title = filepath.Base(t.Buffer.Path())
+			}
 			tabs[i] = view.Tab{
-				Title:    filepath.Base(t.Buffer.Path()),
+				Title:    title,
 				FilePath: t.Buffer.Path(),
 				Dirty:    t.Buffer.IsDirty(),
 			}
@@ -387,6 +509,7 @@ func (e *Editor) render() {
 	// Render sidebar
 	if r, ok := regions["sidebar"]; ok {
 		e.sidebar.SetBounds(r)
+		e.sidebar.SetFocused(e.sidebarFocus)
 		e.sidebar.Render(e.screen)
 	}
 
@@ -417,6 +540,16 @@ func (e *Editor) render() {
 		tab := e.tabs.Active()
 		if tab != nil {
 			e.statusBar.Update(tab.Buffer.Path(), tab.Language, tab.Cursor.Line, tab.Cursor.Col, tab.Buffer.IsDirty())
+			// Show Python info for Python files
+			if tab.Language == "python" && e.pythonEnv != nil {
+				info := "Python " + e.pythonEnv.Version
+				if e.pythonEnv.VenvName != "" {
+					info += " (" + e.pythonEnv.VenvName + ")"
+				}
+				e.statusBar.SetPythonInfo(info)
+			} else {
+				e.statusBar.SetPythonInfo("")
+			}
 		}
 		e.statusBar.Render(e.screen)
 	}
@@ -452,6 +585,12 @@ func (e *Editor) render() {
 			e.inputBar.SetBounds(types.Rect{X: barX, Y: r.Y, Width: barWidth, Height: 1})
 			e.inputBar.Render(e.screen)
 		}
+	}
+	if e.autocomplete.IsVisible() {
+		e.autocomplete.Render(e.screen)
+	}
+	if e.tooltip.IsVisible() {
+		e.tooltip.Render(e.screen)
 	}
 	if e.palette.IsVisible() {
 		e.palette.SetBoundsFromScreen(w, h)
@@ -499,16 +638,76 @@ func (e *Editor) registerCommands() {
 }
 
 func (e *Editor) updatePaletteItems() {
+	// Command items
 	cmds := e.commands.Commands()
-	items := make([]view.PaletteItem, len(cmds))
+	cmdItems := make([]view.PaletteItem, len(cmds))
 	for i, cmd := range cmds {
-		items[i] = view.PaletteItem{
+		cmdItems[i] = view.PaletteItem{
 			Label:       cmd.Name,
 			Description: cmd.Description,
 			Command:     cmd.Name,
 		}
 	}
-	e.palette.SetItems(items)
+	e.palette.SetItems(cmdItems)
+
+	// File items - scan project root
+	e.updatePaletteFileItems()
+}
+
+func (e *Editor) updatePaletteFileItems() {
+	if e.projectRoot == "" {
+		return
+	}
+
+	var fileItems []view.PaletteItem
+
+	// Add recent files first (marked)
+	seen := map[string]bool{}
+	for _, f := range e.recentFiles.Files {
+		rel, err := filepath.Rel(e.projectRoot, f)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		// Check file still exists
+		if _, err := os.Stat(f); err != nil {
+			continue
+		}
+		fileItems = append(fileItems, view.PaletteItem{
+			Label:       rel,
+			Description: "(recent)",
+			FilePath:    f,
+		})
+		seen[f] = true
+	}
+
+	// Walk project directory for files
+	filepath.Walk(e.projectRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := info.Name()
+		// Skip hidden dirs and common ignores
+		if info.IsDir() {
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" || name == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(name, ".") {
+			return nil
+		}
+		if seen[path] {
+			return nil
+		}
+		rel, _ := filepath.Rel(e.projectRoot, path)
+		fileItems = append(fileItems, view.PaletteItem{
+			Label:    rel,
+			FilePath: path,
+		})
+		return nil
+	})
+
+	e.palette.SetFileItems(fileItems)
 }
 
 // LoadKeybindings loads key bindings from the default keybindings config.
@@ -526,6 +725,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+h", "search.replace", "")
 	e.keymap.Bind("ctrl+p", "palette.open", "")
 	e.keymap.Bind("ctrl+b", "sidebar.toggle", "")
+	e.keymap.Bind("alt+left", "sidebar.focus", "")
 	e.keymap.Bind("ctrl+j", "panel.toggle", "")
 	e.keymap.Bind("alt+1", "tab.goto.1", "")
 	e.keymap.Bind("alt+2", "tab.goto.2", "")
@@ -543,6 +743,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("shift+f12", "lsp.findReferences", "")
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
+	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
 }
 
 // --- EditorContext interface implementation ---
@@ -625,8 +826,19 @@ func (e *Editor) ExecuteCommand(name string) error {
 			// Sidebar visible, editor focused → focus sidebar
 			e.sidebarFocus = true
 		}
+	case "sidebar.focus":
+		if !e.layout.SidebarVisible() {
+			e.layout.SetSidebarVisible(true)
+		}
+		e.sidebarFocus = true
 	case "panel.toggle":
 		e.layout.SetPanelVisible(!e.layout.PanelVisible())
+		if !e.layout.PanelVisible() && e.projectSearchQuery != "" {
+			e.projectSearchQuery = ""
+			if e.editorView != nil {
+				e.editorView.ClearSearchHighlights()
+			}
+		}
 	case "palette.open":
 		e.palette.Show()
 	case "search.find":
@@ -645,10 +857,54 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.lspAutocomplete()
 	case "lsp.hover":
 		e.lspHover()
+	case "python.selectEnv":
+		e.showPythonEnvSelector()
 	case "editor.quit":
 		e.tryQuit()
 	}
 	return nil
+}
+
+func (e *Editor) showPythonEnvSelector() {
+	envs := ListAvailableVenvs(e.projectRoot)
+	if len(envs) == 0 {
+		e.statusBar.SetMessage("No Python environments found")
+		return
+	}
+
+	items := make([]view.PaletteItem, len(envs))
+	for i, env := range envs {
+		label := env.Path
+		if env.VenvName != "" {
+			label = env.VenvName
+		}
+		desc := "Python " + env.Version
+		items[i] = view.PaletteItem{
+			Label:       label,
+			Description: desc,
+			Command:     fmt.Sprintf("__pyenv:%d", i),
+		}
+	}
+
+	e.palette.SetItems(items)
+	savedOnSelect := e.palette.OnSelect()
+	e.palette.SetOnSelect(func(item view.PaletteItem) {
+		if strings.HasPrefix(item.Command, "__pyenv:") {
+			idxStr := strings.TrimPrefix(item.Command, "__pyenv:")
+			if idx, err := strconv.Atoi(idxStr); err == nil && idx < len(envs) {
+				e.pythonEnv = &envs[idx]
+				e.statusBar.SetMessage("Python: " + envs[idx].Path)
+				// Restart Python LSP with new environment
+				if e.lspManager.IsRunning("python") {
+					e.lspManager.StopServer("python")
+				}
+			}
+		}
+		// Restore palette
+		e.updatePaletteItems()
+		e.palette.SetOnSelect(savedOnSelect)
+	})
+	e.palette.Show()
 }
 
 // tryQuit handles quit with unsaved changes warning.
@@ -828,7 +1084,7 @@ func (e *Editor) closeCurrentTab() {
 	}
 	idx := e.tabs.ActiveIndex()
 	e.tabs.Close(idx)
-	if e.tabs.Count() == 0 {
+	if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
 		e.OpenEmpty()
 	}
 	e.syncViewToTab()
@@ -1119,38 +1375,27 @@ func (e *Editor) lspAutocomplete() {
 		e.statusBar.SetMessage("No completions")
 		return
 	}
-	// Show completions in palette for selection
-	paletteItems := make([]view.PaletteItem, len(items))
+
+	// Convert to CompletionItem and show in autocomplete popup
+	completionItems := make([]view.CompletionItem, len(items))
 	for i, item := range items {
 		text := item.InsertText
 		if text == "" {
 			text = item.Label
 		}
-		paletteItems[i] = view.PaletteItem{
-			Label:       item.Label,
-			Description: item.Detail,
-			Command:     "__insert:" + text,
+		completionItems[i] = view.CompletionItem{
+			Label:      item.Label,
+			Detail:     item.Detail,
+			InsertText: text,
 		}
 	}
-	e.palette.SetItems(paletteItems)
-	e.palette.SetOnSelect(func(item view.PaletteItem) {
-		if text, ok := strings.CutPrefix(item.Command, "__insert:"); ok {
-			if e.editorView != nil {
-				for _, ch := range text {
-					e.editorView.InsertChar(ch)
-				}
-				e.syncTabFromView()
-			}
-		} else {
-			e.ExecuteCommand(item.Command)
-		}
-		// Restore palette to command list
-		e.updatePaletteItems()
-		e.palette.SetOnSelect(func(item view.PaletteItem) {
-			e.ExecuteCommand(item.Command)
-		})
-	})
-	e.palette.Show()
+
+	// Get cursor screen position for anchoring
+	scrollY, _ := e.editorView.ScrollPosition()
+	bounds := e.editorView.Bounds()
+	anchorY := bounds.Y + (cursor.Line - scrollY)
+	anchorX := bounds.X + e.editorView.CursorScreenX()
+	e.autocomplete.Show(completionItems, anchorX, anchorY)
 }
 
 func (e *Editor) lspHover() {
@@ -1192,9 +1437,12 @@ func (e *Editor) lspHover() {
 		e.statusBar.SetMessage("No hover info")
 		return
 	}
-	// Show hover in status bar (first line only)
-	lines := strings.SplitN(hoverText, "\n", 2)
-	e.statusBar.SetMessage(lines[0])
+	// Show hover as tooltip popup near cursor
+	scrollY, _ := e.editorView.ScrollPosition()
+	bounds := e.editorView.Bounds()
+	anchorY := bounds.Y + (cursor.Line - scrollY)
+	anchorX := bounds.X + e.editorView.CursorScreenX()
+	e.tooltip.Show(hoverText, anchorX, anchorY)
 }
 
 // parseLSPLocations parses a definition/references response into locations.
@@ -1217,4 +1465,134 @@ func parseLSPLocations(resp *lsp.Response) []lsp.Location {
 	}
 
 	return nil
+}
+
+// lspAutocompleteAsync runs autocomplete without blocking the UI.
+func (e *Editor) lspAutocompleteAsync() {
+	tab := e.tabs.Active()
+	if tab == nil || e.editorView == nil || tab.Buffer.Path() == "" {
+		return
+	}
+	client := e.lspManager.GetClient(tab.Language)
+	if client == nil {
+		return
+	}
+
+	// Notify didChange before requesting completion
+	lsp.DidChange(client, lsp.FileURIFromPath(tab.Buffer.Path()), 0, tab.Buffer.Text())
+
+	cursor := e.editorView.CursorPosition()
+	resp, err := lsp.RequestCompletion(client, lsp.FileURIFromPath(tab.Buffer.Path()), cursor.Line, cursor.Col)
+	if err != nil {
+		return
+	}
+	items, err := lsp.ParseCompletionResponse(resp)
+	if err != nil || len(items) == 0 {
+		return
+	}
+
+	completionItems := make([]view.CompletionItem, len(items))
+	for i, item := range items {
+		text := item.InsertText
+		if text == "" {
+			text = item.Label
+		}
+		completionItems[i] = view.CompletionItem{
+			Label:      item.Label,
+			Detail:     item.Detail,
+			InsertText: text,
+		}
+	}
+
+	scrollY, _ := e.editorView.ScrollPosition()
+	bounds := e.editorView.Bounds()
+	anchorY := bounds.Y + (cursor.Line - scrollY)
+	anchorX := bounds.X + e.editorView.CursorScreenX()
+	e.autocomplete.Show(completionItems, anchorX, anchorY)
+
+	// Force a re-render
+	if e.screen != nil {
+		e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+	}
+}
+
+// handleMouseHover triggers LSP hover for the word under the mouse cursor.
+func (e *Editor) handleMouseHover(mx, my int) {
+	if e.editorView == nil {
+		return
+	}
+	tab := e.tabs.Active()
+	if tab == nil || tab.Buffer.Path() == "" {
+		return
+	}
+	client := e.lspManager.GetClient(tab.Language)
+	if client == nil {
+		return
+	}
+
+	// Convert screen position to buffer position
+	eb := e.editorView.Bounds()
+	line := e.editorView.ScreenYToLine(my)
+	col := e.editorView.ScreenXToColForLine(mx, line)
+
+	if line < 0 || line >= tab.Buffer.LineCount() {
+		return
+	}
+
+	// Skip if same position as last hover
+	if line == e.lastHoverLine && col == e.lastHoverCol {
+		return
+	}
+	e.lastHoverLine = line
+	e.lastHoverCol = col
+
+	// Don't hover on empty space
+	lineText := tab.Buffer.Line(line)
+	lineRunes := []rune(lineText)
+	if col >= len(lineRunes) {
+		e.tooltip.Hide()
+		return
+	}
+
+	// Only hover on word characters
+	ch := lineRunes[col]
+	if !isWordChar(ch) {
+		e.tooltip.Hide()
+		return
+	}
+
+	// Request hover in background
+	go func() {
+		resp, err := lsp.RequestHover(client, lsp.FileURIFromPath(tab.Buffer.Path()), line, col)
+		if err != nil || resp.Error != nil || resp.Result == nil {
+			return
+		}
+		data, _ := json.Marshal(resp.Result)
+		var hover lsp.Hover
+		json.Unmarshal(data, &hover)
+
+		hoverText := ""
+		switch v := hover.Contents.(type) {
+		case string:
+			hoverText = v
+		case map[string]interface{}:
+			if val, ok := v["value"]; ok {
+				hoverText = fmt.Sprintf("%v", val)
+			}
+		}
+		if hoverText == "" {
+			return
+		}
+
+		_ = eb // use editor bounds for positioning
+		e.tooltip.Show(hoverText, mx, my)
+
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
+}
+
+func isWordChar(ch rune) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
 }

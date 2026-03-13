@@ -38,6 +38,14 @@ func main() {
 		Background(theme.ResolveColor(theme.UI["background"])).
 		Foreground(theme.ResolveColor(theme.UI["foreground"])))
 
+	// Check minimum terminal size
+	w, h := screen.Size()
+	if w < 80 || h < 24 {
+		screen.Fini()
+		fmt.Fprintf(os.Stderr, "ted: terminal too small (%dx%d). Resize to at least 80x24.\n", w, h)
+		os.Exit(1)
+	}
+
 	// Create editor
 	ed := editor.New(cfg, theme)
 

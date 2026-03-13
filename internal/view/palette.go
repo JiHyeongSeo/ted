@@ -1,10 +1,23 @@
 package view
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/sahilm/fuzzy"
 	"github.com/seoji/ted/internal/syntax"
 	"github.com/seoji/ted/internal/types"
+)
+
+// PaletteMode determines how the palette interprets input.
+type PaletteMode int
+
+const (
+	PaletteModeFile    PaletteMode = iota // default: fuzzy file search
+	PaletteModeCommand                    // ">" prefix: command search
+	PaletteModeGoLine                     // ":" prefix: go to line
 )
 
 // PaletteItem represents an item in the command palette.
@@ -12,19 +25,24 @@ type PaletteItem struct {
 	Label       string
 	Description string
 	Command     string
+	FilePath    string // for file items
 }
 
-// CommandPalette is a fuzzy-search overlay for commands.
+// CommandPalette is a fuzzy-search overlay for commands and files.
 type CommandPalette struct {
 	BaseComponent
-	theme       *syntax.Theme
-	items       []PaletteItem
-	filtered    []PaletteItem
-	query       string
-	selectedIdx int
-	visible     bool
-	onSelect    func(item PaletteItem)
-	onDismiss   func()
+	theme        *syntax.Theme
+	commandItems []PaletteItem
+	fileItems    []PaletteItem
+	filtered     []PaletteItem
+	query        string
+	mode         PaletteMode
+	selectedIdx  int
+	visible      bool
+	onSelect     func(item PaletteItem)
+	onFileOpen   func(path string)
+	onGoToLine   func(line int)
+	onDismiss    func()
 }
 
 // NewCommandPalette creates a new CommandPalette.
@@ -34,15 +52,35 @@ func NewCommandPalette(theme *syntax.Theme) *CommandPalette {
 	}
 }
 
-// SetItems sets the available palette items.
+// SetItems sets the available command items.
 func (p *CommandPalette) SetItems(items []PaletteItem) {
-	p.items = items
+	p.commandItems = items
 	p.filterItems()
 }
 
-// SetOnSelect sets the callback when an item is selected.
+// SetFileItems sets the available file items for file search mode.
+func (p *CommandPalette) SetFileItems(items []PaletteItem) {
+	p.fileItems = items
+}
+
+// SetOnSelect sets the callback when a command item is selected.
 func (p *CommandPalette) SetOnSelect(fn func(item PaletteItem)) {
 	p.onSelect = fn
+}
+
+// OnSelect returns the current select callback.
+func (p *CommandPalette) OnSelect() func(item PaletteItem) {
+	return p.onSelect
+}
+
+// SetOnFileOpen sets the callback when a file is selected.
+func (p *CommandPalette) SetOnFileOpen(fn func(path string)) {
+	p.onFileOpen = fn
+}
+
+// SetOnGoToLine sets the callback for go-to-line mode.
+func (p *CommandPalette) SetOnGoToLine(fn func(line int)) {
+	p.onGoToLine = fn
 }
 
 // SetOnDismiss sets the callback when the palette is dismissed.
@@ -54,6 +92,7 @@ func (p *CommandPalette) SetOnDismiss(fn func()) {
 func (p *CommandPalette) Show() {
 	p.visible = true
 	p.query = ""
+	p.mode = PaletteModeFile
 	p.selectedIdx = 0
 	p.filterItems()
 }
@@ -91,7 +130,6 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	}
 
 	bounds := p.Bounds()
-	// Palette occupies center of screen, width ~60%, height up to 12 items + input
 	paletteWidth := bounds.Width * 3 / 5
 	if paletteWidth < 30 {
 		paletteWidth = 30
@@ -100,9 +138,12 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 		paletteWidth = bounds.Width - 4
 	}
 	maxItems := 10
-	paletteHeight := len(p.filtered) + 2 // +1 for input, +1 for border
+	paletteHeight := len(p.filtered) + 2
 	if paletteHeight > maxItems+2 {
 		paletteHeight = maxItems + 2
+	}
+	if p.mode == PaletteModeGoLine {
+		paletteHeight = 2 // just the input row
 	}
 
 	startX := bounds.X + (bounds.Width-paletteWidth)/2
@@ -116,40 +157,69 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	for x := startX; x < startX+paletteWidth; x++ {
 		screen.SetContent(x, startY, ' ', nil, bgStyle)
 	}
-	prompt := "> " + p.query
+
+	// Prompt varies by mode
+	var prompt string
+	switch p.mode {
+	case PaletteModeCommand:
+		prompt = "> " + p.query
+	case PaletteModeGoLine:
+		prompt = ":" + strings.TrimPrefix(p.query, ":")
+	default:
+		prompt = p.query
+	}
+
 	x := startX + 1
 	for _, ch := range prompt {
-		if x >= startX+paletteWidth-1 {
+		w := runewidth.RuneWidth(ch)
+		if x+w >= startX+paletteWidth-1 {
 			break
 		}
 		screen.SetContent(x, startY, ch, nil, fgStyle)
-		x++
+		x += w
 	}
 
-	// Draw filtered items
-	for i := 0; i < paletteHeight-2 && i < len(p.filtered); i++ {
-		y := startY + 1 + i
-		style := bgStyle
-		if i == p.selectedIdx {
-			style = selStyle
-		}
-
-		for x := startX; x < startX+paletteWidth; x++ {
-			screen.SetContent(x, y, ' ', nil, style)
-		}
-
-		label := "  " + p.filtered[i].Label
-		if p.filtered[i].Description != "" {
-			label += "  " + p.filtered[i].Description
-		}
-
-		x := startX + 1
-		for _, ch := range label {
-			if x >= startX+paletteWidth-1 {
+	// Draw hint text when empty
+	if p.query == "" {
+		hint := "Search files... (> for commands, : for line)"
+		hintStyle := bgStyle.Foreground(tcell.ColorDarkGray)
+		hx := startX + 1
+		for _, ch := range hint {
+			if hx >= startX+paletteWidth-1 {
 				break
 			}
-			screen.SetContent(x, y, ch, nil, style)
-			x++
+			screen.SetContent(hx, startY, ch, nil, hintStyle)
+			hx++
+		}
+	}
+
+	// Draw filtered items (not in go-to-line mode)
+	if p.mode != PaletteModeGoLine {
+		for i := 0; i < paletteHeight-2 && i < len(p.filtered); i++ {
+			y := startY + 1 + i
+			style := bgStyle
+			if i == p.selectedIdx {
+				style = selStyle
+			}
+
+			for x := startX; x < startX+paletteWidth; x++ {
+				screen.SetContent(x, y, ' ', nil, style)
+			}
+
+			label := "  " + p.filtered[i].Label
+			if p.filtered[i].Description != "" {
+				label += "  " + p.filtered[i].Description
+			}
+
+			x := startX + 1
+			for _, ch := range label {
+				w := runewidth.RuneWidth(ch)
+				if x+w >= startX+paletteWidth-1 {
+					break
+				}
+				screen.SetContent(x, y, ch, nil, style)
+				x += w
+			}
 		}
 	}
 }
@@ -173,13 +243,7 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 		}
 		return true
 	case tcell.KeyEnter:
-		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
-			item := p.filtered[p.selectedIdx]
-			p.Hide()
-			if p.onSelect != nil {
-				p.onSelect(item)
-			}
-		}
+		p.handleSelect()
 		return true
 	case tcell.KeyUp:
 		if p.selectedIdx > 0 {
@@ -194,11 +258,13 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(p.query) > 0 {
 			p.query = p.query[:len(p.query)-1]
+			p.detectMode()
 			p.filterItems()
 		}
 		return true
 	case tcell.KeyRune:
 		p.query += string(keyEv.Rune())
+		p.detectMode()
 		p.filterItems()
 		return true
 	}
@@ -206,22 +272,76 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 	return false
 }
 
-func (p *CommandPalette) filterItems() {
-	if p.query == "" {
-		p.filtered = make([]PaletteItem, len(p.items))
-		copy(p.filtered, p.items)
-	} else {
-		labels := make([]string, len(p.items))
-		for i, item := range p.items {
-			labels[i] = item.Label
+func (p *CommandPalette) handleSelect() {
+	switch p.mode {
+	case PaletteModeGoLine:
+		numStr := strings.TrimPrefix(p.query, ":")
+		if num, err := strconv.Atoi(strings.TrimSpace(numStr)); err == nil && num >= 1 {
+			p.Hide()
+			if p.onGoToLine != nil {
+				p.onGoToLine(num)
+			}
 		}
-		matches := fuzzy.Find(p.query, labels)
-		p.filtered = make([]PaletteItem, len(matches))
-		for i, m := range matches {
-			p.filtered[i] = p.items[m.Index]
+	case PaletteModeCommand:
+		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
+			item := p.filtered[p.selectedIdx]
+			p.Hide()
+			if p.onSelect != nil {
+				p.onSelect(item)
+			}
+		}
+	default: // file mode
+		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
+			item := p.filtered[p.selectedIdx]
+			p.Hide()
+			if item.FilePath != "" && p.onFileOpen != nil {
+				p.onFileOpen(item.FilePath)
+			} else if p.onSelect != nil {
+				p.onSelect(item)
+			}
 		}
 	}
+}
+
+func (p *CommandPalette) detectMode() {
+	if strings.HasPrefix(p.query, ">") {
+		p.mode = PaletteModeCommand
+	} else if strings.HasPrefix(p.query, ":") {
+		p.mode = PaletteModeGoLine
+	} else {
+		p.mode = PaletteModeFile
+	}
+}
+
+func (p *CommandPalette) filterItems() {
+	switch p.mode {
+	case PaletteModeCommand:
+		searchQuery := strings.TrimPrefix(p.query, ">")
+		searchQuery = strings.TrimSpace(searchQuery)
+		p.fuzzyFilter(p.commandItems, searchQuery)
+	case PaletteModeGoLine:
+		p.filtered = nil
+	default: // file mode
+		p.fuzzyFilter(p.fileItems, p.query)
+	}
 	p.selectedIdx = 0
+}
+
+func (p *CommandPalette) fuzzyFilter(items []PaletteItem, query string) {
+	if query == "" {
+		p.filtered = make([]PaletteItem, len(items))
+		copy(p.filtered, items)
+		return
+	}
+	labels := make([]string, len(items))
+	for i, item := range items {
+		labels[i] = item.Label
+	}
+	matches := fuzzy.Find(query, labels)
+	p.filtered = make([]PaletteItem, len(matches))
+	for i, m := range matches {
+		p.filtered[i] = items[m.Index]
+	}
 }
 
 // SetBoundsFromScreen sets palette bounds based on total screen size.

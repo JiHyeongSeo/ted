@@ -23,16 +23,17 @@ type EditorView struct {
 	BaseComponent
 	buf              *buffer.Buffer
 	theme            *syntax.Theme
-	highlighter      *syntax.Highlighter // syntax highlighter for the current language
-	cursor           types.Position      // cursor position (rune-based col)
-	scrollY          int                 // first visible line
-	scrollX          int                 // horizontal scroll offset (display columns)
-	selection        *types.Selection    // current selection range
-	lineNumWidth     int                 // width of line number gutter
-	cursorScreenX    int                 // last computed screen X of cursor (for ShowCursor)
-	cursorScreenY    int                 // last computed screen Y of cursor
-	clipboard        string              // internal clipboard
-	searchHighlights []SearchHighlight   // search match highlights
+	highlighter      *syntax.Highlighter   // keyword-based fallback
+	tsHighlighter    *syntax.TSHighlighter // tree-sitter highlighter
+	cursor           types.Position        // cursor position (rune-based col)
+	scrollY          int                   // first visible line
+	scrollX          int                   // horizontal scroll offset (display columns)
+	selection        *types.Selection      // current selection range
+	lineNumWidth     int                   // width of line number gutter
+	cursorScreenX    int                   // last computed screen X of cursor (for ShowCursor)
+	cursorScreenY    int                   // last computed screen Y of cursor
+	clipboard        string                // internal clipboard
+	searchHighlights []SearchHighlight     // search match highlights
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -119,9 +120,11 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		lineRunes := []rune(lineText)
 		textStyle := e.theme.UIStyle("default")
 
-		// Get syntax highlighting tokens
+		// Get syntax highlighting tokens (prefer tree-sitter)
 		var tokens []syntax.Token
-		if e.highlighter != nil {
+		if e.tsHighlighter != nil {
+			tokens = e.tsHighlighter.HighlightLine(lineNum)
+		} else if e.highlighter != nil {
 			tokens = e.highlighter.HighlightLine(lineText)
 		}
 
@@ -157,12 +160,10 @@ func (e *EditorView) Render(screen tcell.Screen) {
 			style := textStyle
 
 			// Apply syntax highlighting
-			if e.highlighter != nil {
-				for _, token := range tokens {
-					if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
-						style = e.highlighter.StyleForToken(token.Type)
-						break
-					}
+			for _, token := range tokens {
+				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
+					style = e.theme.TokenStyle(string(token.Type))
+					break
 				}
 			}
 
@@ -334,6 +335,28 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 			e.ExtendSelection()
 		}
 		return true
+	case tcell.KeyPgUp:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
+		e.MoveCursorPageUp()
+		if shift {
+			e.ExtendSelection()
+		}
+		return true
+	case tcell.KeyPgDn:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
+		e.MoveCursorPageDown()
+		if shift {
+			e.ExtendSelection()
+		}
+		return true
 	case tcell.KeyCtrlA:
 		e.ClearSelection()
 		e.MoveCursorToLineStart()
@@ -483,6 +506,63 @@ func (e *EditorView) MoveCursorDown() {
 	}
 }
 
+// MoveCursorPageUp moves the cursor up by one page.
+func (e *EditorView) MoveCursorPageUp() {
+	pageSize := e.Bounds().Height
+	if pageSize < 1 {
+		pageSize = 1
+	}
+	e.cursor.Line -= pageSize
+	if e.cursor.Line < 0 {
+		e.cursor.Line = 0
+	}
+	e.scrollY -= pageSize
+	if e.scrollY < 0 {
+		e.scrollY = 0
+	}
+	e.clampCursorCol()
+	e.ensureCursorVisible()
+}
+
+// MoveCursorPageDown moves the cursor down by one page.
+func (e *EditorView) MoveCursorPageDown() {
+	pageSize := e.Bounds().Height
+	if pageSize < 1 {
+		pageSize = 1
+	}
+	e.cursor.Line += pageSize
+	lastLine := e.buf.LineCount() - 1
+	if lastLine < 0 {
+		lastLine = 0
+	}
+	if e.cursor.Line > lastLine {
+		e.cursor.Line = lastLine
+	}
+	e.scrollY += pageSize
+	e.clampCursorCol()
+	e.ensureCursorVisible()
+}
+
+// ScrollUp scrolls the view up by n lines without moving the cursor.
+func (e *EditorView) ScrollUp(n int) {
+	e.scrollY -= n
+	if e.scrollY < 0 {
+		e.scrollY = 0
+	}
+}
+
+// ScrollDown scrolls the view down by n lines without moving the cursor.
+func (e *EditorView) ScrollDown(n int) {
+	maxScroll := e.buf.LineCount() - 1
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	e.scrollY += n
+	if e.scrollY > maxScroll {
+		e.scrollY = maxScroll
+	}
+}
+
 // MoveCursorLeft moves the cursor left one character.
 func (e *EditorView) MoveCursorLeft() {
 	if e.cursor.Col > 0 {
@@ -596,6 +676,13 @@ func (e *EditorView) ensureCursorVisible() {
 	}
 }
 
+// reparseTS re-parses the buffer with tree-sitter after edits.
+func (e *EditorView) reparseTS() {
+	if e.tsHighlighter != nil {
+		e.tsHighlighter.Parse([]byte(e.buf.Text()))
+	}
+}
+
 // InsertChar inserts a character at the cursor position.
 func (e *EditorView) InsertChar(ch rune) {
 	if e.buf.ReadOnly {
@@ -604,6 +691,7 @@ func (e *EditorView) InsertChar(ch rune) {
 	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
 	e.buf.Insert(e.cursor.Line, byteCol, string(ch))
 	e.cursor.Col++
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -613,7 +701,6 @@ func (e *EditorView) InsertTab() {
 		return
 	}
 	tabSize := 4
-	// Insert spaces to next tab stop
 	col := e.cursor.Col
 	spacesToInsert := tabSize - (col % tabSize)
 	indent := ""
@@ -623,6 +710,7 @@ func (e *EditorView) InsertTab() {
 	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
 	e.buf.Insert(e.cursor.Line, byteCol, indent)
 	e.cursor.Col += spacesToInsert
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -646,6 +734,7 @@ func (e *EditorView) InsertNewlineWithIndent() {
 	e.buf.Insert(e.cursor.Line, byteCol, "\n"+indent)
 	e.cursor.Line++
 	e.cursor.Col = utf8.RuneCountInString(indent)
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -658,6 +747,7 @@ func (e *EditorView) InsertNewline() {
 	e.buf.Insert(e.cursor.Line, byteCol, "\n")
 	e.cursor.Line++
 	e.cursor.Col = 0
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -679,6 +769,7 @@ func (e *EditorView) DeleteBack() {
 		e.cursor.Line--
 		e.cursor.Col = prevRuneLen
 	}
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -697,6 +788,7 @@ func (e *EditorView) DeleteForward() {
 		byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
 		e.buf.Delete(e.cursor.Line, byteCol, 1)
 	}
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -723,6 +815,85 @@ func (e *EditorView) ClearSelection() {
 // CursorPosition returns the current cursor position.
 func (e *EditorView) CursorPosition() types.Position {
 	return e.cursor
+}
+
+// ScreenYToLine converts a screen Y coordinate to a buffer line number.
+func (e *EditorView) ScreenYToLine(screenY int) int {
+	bounds := e.Bounds()
+	row := screenY - bounds.Y
+	return e.scrollY + row
+}
+
+// ScreenXToCol converts a screen X coordinate to a rune column for a given screen Y.
+func (e *EditorView) ScreenXToCol(screenX int) int {
+	bounds := e.Bounds()
+	textAreaX := bounds.X + e.lineNumWidth
+	clickDispCol := (screenX - textAreaX) + e.scrollX
+	if clickDispCol < 0 {
+		return 0
+	}
+
+	// Determine the line from cursor position context
+	// Use the last known line from screen position
+	row := e.scrollY + (e.cursorScreenY - bounds.Y)
+	if row < 0 || row >= e.buf.LineCount() {
+		return 0
+	}
+
+	lineRunes := []rune(e.buf.Line(row))
+	dispCol := 0
+	for i, ch := range lineRunes {
+		var w int
+		if ch == '\t' {
+			w = tabWidth - (dispCol % tabWidth)
+		} else {
+			w = runewidth.RuneWidth(ch)
+		}
+		if dispCol+w > clickDispCol {
+			return i
+		}
+		dispCol += w
+	}
+	return len(lineRunes)
+}
+
+// ScreenXToColForLine converts a screen X coordinate to a rune column for a specific line.
+func (e *EditorView) ScreenXToColForLine(screenX, line int) int {
+	bounds := e.Bounds()
+	textAreaX := bounds.X + e.lineNumWidth
+	clickDispCol := (screenX - textAreaX) + e.scrollX
+	if clickDispCol < 0 {
+		return 0
+	}
+	if line < 0 || line >= e.buf.LineCount() {
+		return 0
+	}
+
+	lineRunes := []rune(e.buf.Line(line))
+	dispCol := 0
+	for i, ch := range lineRunes {
+		var w int
+		if ch == '\t' {
+			w = tabWidth - (dispCol % tabWidth)
+		} else {
+			w = runewidth.RuneWidth(ch)
+		}
+		if dispCol+w > clickDispCol {
+			return i
+		}
+		dispCol += w
+	}
+	return len(lineRunes)
+}
+
+// CursorScreenX returns the last computed screen X of the cursor relative to editor bounds.
+func (e *EditorView) CursorScreenX() int {
+	return e.cursorScreenX - e.Bounds().X
+}
+
+// CursorScreenY returns the last computed screen Y of the cursor.
+func (e *EditorView) CursorScreenY() int {
+	return e.cursorScreenY
 }
 
 // ScrollPosition returns the current scroll position.
@@ -822,7 +993,18 @@ func (e *EditorView) HandleMouseClick(screenX, screenY int) {
 func (e *EditorView) SetLanguage(language string) {
 	if e.theme == nil {
 		e.highlighter = nil
+		e.tsHighlighter = nil
 		return
 	}
-	e.highlighter = syntax.NewHighlighter(e.theme, language)
+	// Try tree-sitter first, fall back to keyword-based
+	if syntax.TSSupported(language) {
+		e.tsHighlighter = syntax.NewTSHighlighter(e.theme, language)
+		if e.tsHighlighter != nil {
+			e.tsHighlighter.Parse([]byte(e.buf.Text()))
+		}
+		e.highlighter = nil
+	} else {
+		e.tsHighlighter = nil
+		e.highlighter = syntax.NewHighlighter(e.theme, language)
+	}
 }

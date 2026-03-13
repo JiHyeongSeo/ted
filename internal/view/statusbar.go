@@ -12,14 +12,15 @@ import (
 // StatusBar displays file information at the bottom of the editor.
 type StatusBar struct {
 	BaseComponent
-	theme    *syntax.Theme
-	filename string
-	language string
-	line     int
-	col      int
-	dirty    bool
-	encoding string
-	message  string // temporary message to display instead of normal info
+	theme      *syntax.Theme
+	filename   string
+	language   string
+	line       int
+	col        int
+	dirty      bool
+	encoding   string
+	message    string // temporary message to display instead of normal info
+	pythonInfo string // e.g. "Python 3.12 (.venv)"
 }
 
 // NewStatusBar creates a new StatusBar.
@@ -73,8 +74,13 @@ func (sb *StatusBar) Render(screen tcell.Screen) {
 		left += " [+]"
 	}
 
-	// Right side: language, line:col, encoding
-	right := fmt.Sprintf("%s  Ln %d, Col %d  %s ", sb.language, sb.line+1, sb.col+1, sb.encoding)
+	// Right side: language, python info, line:col, encoding
+	right := ""
+	if sb.pythonInfo != "" {
+		right = fmt.Sprintf("%s  %s  Ln %d, Col %d  %s ", sb.pythonInfo, sb.language, sb.line+1, sb.col+1, sb.encoding)
+	} else {
+		right = fmt.Sprintf("%s  Ln %d, Col %d  %s ", sb.language, sb.line+1, sb.col+1, sb.encoding)
+	}
 
 	// Draw left
 	x := bounds.X
@@ -104,6 +110,11 @@ func (sb *StatusBar) Render(screen tcell.Screen) {
 func (sb *StatusBar) SetPosition(pos types.Position) {
 	sb.line = pos.Line
 	sb.col = pos.Col
+}
+
+// SetPythonInfo sets Python environment info to display.
+func (sb *StatusBar) SetPythonInfo(info string) {
+	sb.pythonInfo = info
 }
 
 // SetMessage sets a temporary message to display in the status bar.

@@ -33,39 +33,39 @@ func ParseTheme(data []byte) (*Theme, error) {
 	return t, nil
 }
 
-// DefaultTheme returns a built-in Monokai theme.
+// DefaultTheme returns a built-in Dark+ theme (VSCode-inspired, pure black background).
 func DefaultTheme() *Theme {
 	return &Theme{
-		Name: "Monokai",
+		Name: "Dark+",
 		Colors: map[string]string{
-			"keyword":     "#f92672", // pink
-			"string":      "#e6db74", // yellow
-			"function":    "#a6e22e", // green
-			"comment":     "#75715e", // grey
-			"type":        "#66d9ef", // cyan
-			"number":      "#ae81ff", // purple
-			"operator":    "#f92672", // pink
-			"variable":    "#f8f8f2", // white
-			"constant":    "#ae81ff", // purple
-			"property":    "#66d9ef", // cyan
-			"punctuation": "#f8f8f2", // white
+			"keyword":     "#569cd6", // blue
+			"string":      "#ce9178", // orange
+			"function":    "#dcdcaa", // yellow
+			"comment":     "#6a9955", // green
+			"type":        "#4ec9b0", // teal
+			"number":      "#b5cea8", // light green
+			"operator":    "#d4d4d4", // light grey
+			"variable":    "#9cdcfe", // light blue
+			"constant":    "#4fc1ff", // bright blue
+			"property":    "#9cdcfe", // light blue
+			"punctuation": "#d4d4d4", // light grey
 		},
 		UI: map[string]string{
-			"background":          "#272822",
-			"foreground":          "#f8f8f2",
-			"cursor":              "#f8f8f0",
-			"selection":           "#49483e",
-			"lineNumber":          "#90908a",
-			"lineNumberActive":    "#f8f8f2",
-			"statusBar":           "#1e1f1c",
-			"statusBarForeground": "#f8f8f2",
-			"tabActive":           "#272822",
-			"tabInactive":         "#1e1f1c",
-			"sidebar":             "#1e1f1c",
-			"panelBackground":     "#1e1f1c",
-			"errorForeground":     "#f92672",
-			"warningForeground":   "#e6db74",
-			"matchHighlight":      "#e6db74",
+			"background":          "#000000",
+			"foreground":          "#d4d4d4",
+			"cursor":              "#aeafad",
+			"selection":           "#264f78",
+			"lineNumber":          "#5a5a5a",
+			"lineNumberActive":    "#c6c6c6",
+			"statusBar":           "#007acc",
+			"statusBarForeground": "#ffffff",
+			"tabActive":           "#000000",
+			"tabInactive":         "#0a0a0a",
+			"sidebar":             "#0a0a0a",
+			"panelBackground":     "#0a0a0a",
+			"errorForeground":     "#f44747",
+			"warningForeground":   "#cca700",
+			"matchHighlight":      "#e2c56d",
 		},
 	}
 }

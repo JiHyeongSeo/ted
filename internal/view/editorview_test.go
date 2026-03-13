@@ -537,20 +537,20 @@ func TestEditorViewHighlighting(t *testing.T) {
 	ev := NewEditorView(buf, theme)
 
 	// Initially no highlighter
-	if ev.highlighter != nil {
-		t.Error("Highlighter should be nil initially")
+	if ev.highlighter != nil && ev.tsHighlighter != nil {
+		t.Error("Highlighters should be nil initially")
 	}
 
-	// Set language to "go"
+	// Set language to "go" — should use tree-sitter
 	ev.SetLanguage("go")
 
-	// Highlighter should now be set
-	if ev.highlighter == nil {
-		t.Fatal("Highlighter should be non-nil after SetLanguage(\"go\")")
+	// Tree-sitter highlighter should now be set
+	if ev.tsHighlighter == nil {
+		t.Fatal("TSHighlighter should be non-nil after SetLanguage(\"go\")")
 	}
 
-	// Test that highlighter can process a line
-	tokens := ev.highlighter.HighlightLine("package main")
+	// Test that tree-sitter highlighter can process a line
+	tokens := ev.tsHighlighter.HighlightLine(0)
 	if len(tokens) == 0 {
 		t.Error("Expected tokens for Go code, got none")
 	}
@@ -570,8 +570,8 @@ func TestEditorViewHighlighting(t *testing.T) {
 	// Test setting to nil theme
 	ev.theme = nil
 	ev.SetLanguage("go")
-	if ev.highlighter != nil {
-		t.Error("Highlighter should be nil when theme is nil")
+	if ev.highlighter != nil || ev.tsHighlighter != nil {
+		t.Error("Highlighters should be nil when theme is nil")
 	}
 }
 
