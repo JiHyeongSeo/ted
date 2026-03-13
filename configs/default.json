@@ -1,0 +1,36 @@
+{
+  "editor": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "wordWrap": false,
+    "lineNumbers": true,
+    "cursorStyle": "block"
+  },
+  "sidebar": {
+    "width": 30,
+    "visible": false
+  },
+  "panel": {
+    "height": 12,
+    "visible": false
+  },
+  "search": {
+    "useRipgrep": true,
+    "excludePatterns": ["node_modules", ".git", "__pycache__"]
+  },
+  "syntax": {
+    "theme": "catppuccin-mocha"
+  },
+  "lsp": {
+    "go": {
+      "command": "gopls",
+      "args": ["serve"],
+      "rootMarkers": ["go.mod"]
+    },
+    "python": {
+      "command": "pylsp",
+      "args": [],
+      "rootMarkers": ["pyproject.toml", "setup.py"]
+    }
+  }
+}

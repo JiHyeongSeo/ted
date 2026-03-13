@@ -1,0 +1,23 @@
+{
+  "keybindings": [
+    { "key": "ctrl+s", "command": "file.save" },
+    { "key": "ctrl+o", "command": "file.open" },
+    { "key": "ctrl+w", "command": "file.close" },
+    { "key": "ctrl+f", "command": "search.find" },
+    { "key": "ctrl+h", "command": "search.replace" },
+    { "key": "ctrl+shift+f", "command": "search.findInFiles" },
+    { "key": "ctrl+p", "command": "palette.open" },
+    { "key": "ctrl+g", "command": "editor.goToLine" },
+    { "key": "ctrl+d", "command": "editor.selectWord" },
+    { "key": "ctrl+z", "command": "edit.undo" },
+    { "key": "ctrl+y", "command": "edit.redo" },
+    { "key": "ctrl+b", "command": "sidebar.toggle" },
+    { "key": "ctrl+j", "command": "panel.toggle" },
+    { "key": "f12", "command": "lsp.goToDefinition" },
+    { "key": "shift+f12", "command": "lsp.findReferences" },
+    { "key": "ctrl+space", "command": "lsp.autocomplete" },
+    { "key": "ctrl+k ctrl+i", "command": "lsp.hover" },
+    { "key": "ctrl+tab", "command": "tab.next" },
+    { "key": "ctrl+shift+tab", "command": "tab.previous" }
+  ]
+}
