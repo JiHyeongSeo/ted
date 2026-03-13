@@ -153,6 +153,26 @@ func (s *Sidebar) HandleEvent(ev tcell.Event) bool {
 	return false
 }
 
+// SelectIndex sets the selected entry by flat index and triggers action.
+func (s *Sidebar) SelectIndex(idx int) {
+	if idx < 0 || idx >= len(s.flatEntries) {
+		return
+	}
+	s.selectedIdx = idx
+	entry := s.flatEntries[idx]
+	if entry.IsDir {
+		entry.Expanded = !entry.Expanded
+		s.rebuildFlat()
+	} else if s.onFileOpen != nil {
+		s.onFileOpen(entry.Path)
+	}
+}
+
+// ScrollY returns the current scroll offset.
+func (s *Sidebar) ScrollY() int {
+	return s.scrollY
+}
+
 func (s *Sidebar) ensureVisible() {
 	bounds := s.Bounds()
 	if s.selectedIdx < s.scrollY {

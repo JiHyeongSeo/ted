@@ -30,8 +30,9 @@ type Editor struct {
 	sidebar    *view.Sidebar
 	panel      *view.BottomPanel
 	palette    *view.CommandPalette
-	searchBar  *view.SearchBar
-	running    bool
+	searchBar    *view.SearchBar
+	running      bool
+	sidebarFocus bool // true when sidebar has keyboard focus
 }
 
 // New creates a new Editor instance.
@@ -172,7 +173,7 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		return
 	}
 
-	// Try keymap
+	// Try keymap (global shortcuts work regardless of focus)
 	cmd, result := e.keymap.Resolve(ev, "editor")
 	switch result {
 	case input.ResolveMatched:
@@ -182,14 +183,31 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		return
 	}
 
+	// Sidebar keyboard navigation when focused
+	if e.sidebarFocus && e.layout.SidebarVisible() {
+		// Escape returns focus to editor
+		if ev.Key() == tcell.KeyEscape {
+			e.sidebarFocus = false
+			return
+		}
+		e.sidebar.SetFocused(true)
+		e.sidebar.HandleEvent(ev)
+		e.sidebar.SetFocused(false)
+		return
+	}
+
 	// Pass to editor view for text input
-	if e.editorView != nil && e.editorView.IsFocused() {
+	if e.editorView != nil {
 		e.editorView.HandleEvent(ev)
 		e.syncTabFromView()
 	}
 }
 
 func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
+	mx, my := ev.Position()
+	btn := ev.Buttons()
+
+	// Tab bar click
 	if e.tabBar != nil {
 		oldIdx := e.tabs.ActiveIndex()
 		if e.tabBar.HandleEvent(ev) {
@@ -198,7 +216,27 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 				e.tabs.SetActive(newIdx)
 				e.syncViewToTab()
 			}
+			return
 		}
+	}
+
+	// Sidebar click
+	if e.layout.SidebarVisible() && btn == tcell.Button1 {
+		sb := e.sidebar.Bounds()
+		if mx >= sb.X && mx < sb.X+sb.Width && my >= sb.Y && my < sb.Y+sb.Height {
+			e.sidebarFocus = true
+			// Calculate which entry was clicked
+			row := my - sb.Y + e.sidebar.ScrollY()
+			e.sidebar.SelectIndex(row)
+			return
+		}
+		// Clicked outside sidebar — return focus to editor
+		e.sidebarFocus = false
+	}
+
+	// Double-click in sidebar opens file
+	if e.layout.SidebarVisible() && btn == tcell.ButtonNone {
+		// tcell doesn't expose double-click natively; Enter key handles this
 	}
 }
 
@@ -377,7 +415,13 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.tabs.Previous()
 		e.syncViewToTab()
 	case "sidebar.toggle":
-		e.layout.SetSidebarVisible(!e.layout.SidebarVisible())
+		visible := !e.layout.SidebarVisible()
+		e.layout.SetSidebarVisible(visible)
+		e.sidebarFocus = visible
+	case "sidebar.focus":
+		if e.layout.SidebarVisible() {
+			e.sidebarFocus = true
+		}
 	case "panel.toggle":
 		e.layout.SetPanelVisible(!e.layout.PanelVisible())
 	case "palette.open":
