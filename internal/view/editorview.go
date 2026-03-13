@@ -537,6 +537,11 @@ func (e *EditorView) runeColToByteCol(line, runeCol int) int {
 func (e *EditorView) ensureCursorVisible() {
 	bounds := e.Bounds()
 
+	// Skip if bounds haven't been set yet
+	if bounds.Width == 0 || bounds.Height == 0 {
+		return
+	}
+
 	// Vertical scrolling
 	if e.cursor.Line < e.scrollY {
 		e.scrollY = e.cursor.Line
@@ -546,8 +551,8 @@ func (e *EditorView) ensureCursorVisible() {
 
 	// Horizontal scrolling — based on display width, not rune count
 	textAreaWidth := bounds.Width - e.lineNumWidth
-	if textAreaWidth < 0 {
-		textAreaWidth = 0
+	if textAreaWidth <= 0 {
+		return
 	}
 	cursorDispX := e.runeDisplayWidth(e.cursor.Line, e.cursor.Col)
 	if cursorDispX < e.scrollX {
