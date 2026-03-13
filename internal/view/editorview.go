@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/seoji/ted/internal/buffer"
 	"github.com/seoji/ted/internal/syntax"
 	"github.com/seoji/ted/internal/types"
@@ -16,9 +17,9 @@ type EditorView struct {
 	buf          *buffer.Buffer
 	theme        *syntax.Theme
 	highlighter  *syntax.Highlighter // syntax highlighter for the current language
-	cursor       types.Position      // cursor position in the buffer
+	cursor       types.Position      // cursor position (rune-based col)
 	scrollY      int                 // first visible line
-	scrollX      int                 // horizontal scroll offset
+	scrollX      int                 // horizontal scroll offset (display columns)
 	selection    *types.Selection    // current selection range
 	lineNumWidth int                 // width of line number gutter
 }
@@ -48,6 +49,22 @@ func (e *EditorView) updateLineNumWidth() {
 	e.lineNumWidth = width + 1 // +1 for padding
 }
 
+// runeDisplayWidth returns the display width of a line up to runeCol runes.
+func (e *EditorView) runeDisplayWidth(line int, runeCol int) int {
+	lineText := e.buf.Line(line)
+	runes := []rune(lineText)
+	w := 0
+	for i := 0; i < runeCol && i < len(runes); i++ {
+		w += runewidth.RuneWidth(runes[i])
+	}
+	return w
+}
+
+// lineDisplayWidth returns the total display width of a line.
+func (e *EditorView) lineDisplayWidth(line int) int {
+	return e.runeDisplayWidth(line, e.runeLen(line))
+}
+
 // Render draws the editor view to the screen.
 func (e *EditorView) Render(screen tcell.Screen) {
 	e.updateLineNumWidth()
@@ -64,7 +81,6 @@ func (e *EditorView) Render(screen tcell.Screen) {
 	for row := 0; row < bounds.Height; row++ {
 		lineNum := e.scrollY + row
 		if lineNum >= e.buf.LineCount() {
-			// Clear remaining rows
 			e.clearRow(screen, bounds.Y+row, bounds.X, bounds.Width)
 			continue
 		}
@@ -78,55 +94,85 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		for i, ch := range lineNumStr {
 			screen.SetContent(bounds.X+i, bounds.Y+row, ch, nil, lineNumStyle)
 		}
-		// Padding space after line number
 		screen.SetContent(bounds.X+e.lineNumWidth-1, bounds.Y+row, ' ', nil, lineNumStyle)
 
-		// Draw line content
+		// Draw line content with wide character support
 		lineText := e.buf.Line(lineNum)
+		lineRunes := []rune(lineText)
 		textStyle := e.theme.UIStyle("default")
 
-		// Convert line to runes for proper multi-byte character handling
-		lineRunes := []rune(lineText)
-
-		// Get syntax highlighting tokens for this line
+		// Get syntax highlighting tokens
 		var tokens []syntax.Token
 		if e.highlighter != nil {
 			tokens = e.highlighter.HighlightLine(lineText)
 		}
 
-		for col := 0; col < textAreaWidth; col++ {
-			screenX := textAreaX + col
-			screenY := bounds.Y + row
-			runeCol := e.scrollX + col
+		// Clear the text area for this row first
+		for x := textAreaX; x < textAreaX+textAreaWidth; x++ {
+			screen.SetContent(x, bounds.Y+row, ' ', nil, textStyle)
+		}
+
+		// Render runes, tracking display column
+		screenCol := 0 // display column relative to textAreaX
+		for runeIdx := 0; runeIdx < len(lineRunes); runeIdx++ {
+			ch := lineRunes[runeIdx]
+			w := runewidth.RuneWidth(ch)
+
+			// Skip runes that are scrolled off to the left
+			if screenCol+w <= e.scrollX {
+				screenCol += w
+				continue
+			}
+			// Stop if past the visible area
+			dispCol := screenCol - e.scrollX
+			if dispCol >= textAreaWidth {
+				break
+			}
 
 			style := textStyle
-			var ch rune = ' '
 
-			// Apply syntax highlighting if available
-			if runeCol < len(lineRunes) {
-				ch = lineRunes[runeCol]
-				// Find which token this column falls into
-				if e.highlighter != nil {
-					for _, token := range tokens {
-						if runeCol >= token.Start && runeCol < token.Start+token.Length {
-							style = e.highlighter.StyleForToken(token.Type)
-							break
-						}
+			// Apply syntax highlighting
+			if e.highlighter != nil {
+				for _, token := range tokens {
+					if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
+						style = e.highlighter.StyleForToken(token.Type)
+						break
 					}
 				}
 			}
 
-			// Check if this position is in selection
-			if e.selection != nil && e.isInSelection(lineNum, runeCol) {
+			// Selection
+			if e.selection != nil && e.isInSelection(lineNum, runeIdx) {
 				style = e.theme.UIStyle("selection")
 			}
 
-			// Highlight cursor position
-			if lineNum == e.cursor.Line && runeCol == e.cursor.Col {
+			// Cursor
+			if lineNum == e.cursor.Line && runeIdx == e.cursor.Col {
 				style = style.Reverse(true)
 			}
 
-			screen.SetContent(screenX, screenY, ch, nil, style)
+			screenX := textAreaX + dispCol
+
+			// Handle wide chars that would be partially clipped at right edge
+			if dispCol+w > textAreaWidth {
+				// Draw placeholder for clipped wide char
+				screen.SetContent(screenX, bounds.Y+row, ' ', nil, style)
+			} else {
+				screen.SetContent(screenX, bounds.Y+row, ch, nil, style)
+				// tcell handles wide chars: the next cell is automatically
+				// occupied, but we should not write to it
+			}
+
+			screenCol += w
+		}
+
+		// Draw cursor at end of line (when cursor is past last char)
+		if lineNum == e.cursor.Line && e.cursor.Col >= len(lineRunes) {
+			cursorDispCol := e.runeDisplayWidth(lineNum, e.cursor.Col) - e.scrollX
+			if cursorDispCol >= 0 && cursorDispCol < textAreaWidth {
+				cursorStyle := textStyle.Reverse(true)
+				screen.SetContent(textAreaX+cursorDispCol, bounds.Y+row, ' ', nil, cursorStyle)
+			}
 		}
 	}
 }
@@ -145,7 +191,6 @@ func (e *EditorView) isInSelection(line, col int) bool {
 		return false
 	}
 	start, end := e.selection.Start, e.selection.End
-	// Normalize so start is before end
 	if start.Line > end.Line || (start.Line == end.Line && start.Col > end.Col) {
 		start, end = end, start
 	}
@@ -165,10 +210,6 @@ func (e *EditorView) isInSelection(line, col int) bool {
 
 // HandleEvent processes input events.
 func (e *EditorView) HandleEvent(ev tcell.Event) bool {
-	if !e.IsFocused() {
-		return false
-	}
-
 	switch event := ev.(type) {
 	case *tcell.EventKey:
 		return e.handleKeyEvent(event)
@@ -180,7 +221,6 @@ func (e *EditorView) HandleEvent(ev tcell.Event) bool {
 func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 	key := ev.Key()
 
-	// Handle special keys
 	switch key {
 	case tcell.KeyUp:
 		e.MoveCursorUp()
@@ -216,7 +256,6 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 		e.DeleteForward()
 		return true
 	case tcell.KeyRune:
-		// Handle regular character input
 		e.InsertChar(ev.Rune())
 		return true
 	}
@@ -247,7 +286,6 @@ func (e *EditorView) MoveCursorLeft() {
 	if e.cursor.Col > 0 {
 		e.cursor.Col--
 	} else if e.cursor.Line > 0 {
-		// Move to end of previous line
 		e.cursor.Line--
 		e.cursor.Col = e.runeLen(e.cursor.Line)
 	}
@@ -260,7 +298,6 @@ func (e *EditorView) MoveCursorRight() {
 	if e.cursor.Col < lineLen {
 		e.cursor.Col++
 	} else if e.cursor.Line < e.buf.LineCount()-1 {
-		// Move to start of next line
 		e.cursor.Line++
 		e.cursor.Col = 0
 	}
@@ -339,15 +376,16 @@ func (e *EditorView) ensureCursorVisible() {
 		e.scrollY = e.cursor.Line - bounds.Height + 1
 	}
 
-	// Horizontal scrolling
+	// Horizontal scrolling — based on display width, not rune count
 	textAreaWidth := bounds.Width - e.lineNumWidth
 	if textAreaWidth < 0 {
 		textAreaWidth = 0
 	}
-	if e.cursor.Col < e.scrollX {
-		e.scrollX = e.cursor.Col
-	} else if e.cursor.Col >= e.scrollX+textAreaWidth {
-		e.scrollX = e.cursor.Col - textAreaWidth + 1
+	cursorDispX := e.runeDisplayWidth(e.cursor.Line, e.cursor.Col)
+	if cursorDispX < e.scrollX {
+		e.scrollX = cursorDispX
+	} else if cursorDispX >= e.scrollX+textAreaWidth {
+		e.scrollX = cursorDispX - textAreaWidth + 1
 	}
 }
 
@@ -386,7 +424,6 @@ func (e *EditorView) DeleteBack() {
 		e.buf.Delete(e.cursor.Line, byteCol, size)
 		e.cursor.Col--
 	} else if e.cursor.Line > 0 {
-		// Delete newline at end of previous line
 		prevRuneLen := e.runeLen(e.cursor.Line - 1)
 		prevByteLen := len(e.buf.Line(e.cursor.Line - 1))
 		e.buf.Delete(e.cursor.Line-1, prevByteLen, 1)
@@ -408,7 +445,6 @@ func (e *EditorView) DeleteForward() {
 		_, size := utf8.DecodeRuneInString(lineText[byteCol:])
 		e.buf.Delete(e.cursor.Line, byteCol, size)
 	} else if e.cursor.Line < e.buf.LineCount()-1 {
-		// Delete newline at end of current line
 		byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
 		e.buf.Delete(e.cursor.Line, byteCol, 1)
 	}
