@@ -418,3 +418,15 @@ func (e *EditorView) SetBuffer(buf *buffer.Buffer) {
 func (e *EditorView) Selection() *types.Selection {
 	return e.selection
 }
+
+// SetCursorPosition sets the cursor to the given position.
+func (e *EditorView) SetCursorPosition(pos types.Position) {
+	e.cursor = pos
+	e.clampCursorCol()
+	e.ensureCursorVisible()
+}
+
+// SetScrollY sets the vertical scroll offset.
+func (e *EditorView) SetScrollY(y int) {
+	e.scrollY = y
+}
