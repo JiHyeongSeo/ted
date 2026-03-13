@@ -19,6 +19,7 @@ type StatusBar struct {
 	col      int
 	dirty    bool
 	encoding string
+	message  string // temporary message to display instead of normal info
 }
 
 // NewStatusBar creates a new StatusBar.
@@ -50,6 +51,20 @@ func (sb *StatusBar) Render(screen tcell.Screen) {
 	// Clear the status bar area
 	for x := bounds.X; x < bounds.X+bounds.Width; x++ {
 		screen.SetContent(x, bounds.Y, ' ', nil, style)
+	}
+
+	// If there's a message, show it instead
+	if sb.message != "" {
+		x := bounds.X
+		msgStyle := style.Foreground(tcell.ColorYellow)
+		for _, ch := range " " + sb.message {
+			if x >= bounds.X+bounds.Width {
+				break
+			}
+			screen.SetContent(x, bounds.Y, ch, nil, msgStyle)
+			x++
+		}
+		return
 	}
 
 	// Left side: filename + modified indicator
@@ -89,4 +104,14 @@ func (sb *StatusBar) Render(screen tcell.Screen) {
 func (sb *StatusBar) SetPosition(pos types.Position) {
 	sb.line = pos.Line
 	sb.col = pos.Col
+}
+
+// SetMessage sets a temporary message to display in the status bar.
+func (sb *StatusBar) SetMessage(msg string) {
+	sb.message = msg
+}
+
+// ClearMessage clears the temporary message.
+func (sb *StatusBar) ClearMessage() {
+	sb.message = ""
 }

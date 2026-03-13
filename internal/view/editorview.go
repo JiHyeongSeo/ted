@@ -14,14 +14,17 @@ import (
 // EditorView renders a text buffer with line numbers, cursor, and scrolling.
 type EditorView struct {
 	BaseComponent
-	buf          *buffer.Buffer
-	theme        *syntax.Theme
-	highlighter  *syntax.Highlighter // syntax highlighter for the current language
-	cursor       types.Position      // cursor position (rune-based col)
-	scrollY      int                 // first visible line
-	scrollX      int                 // horizontal scroll offset (display columns)
-	selection    *types.Selection    // current selection range
-	lineNumWidth int                 // width of line number gutter
+	buf           *buffer.Buffer
+	theme         *syntax.Theme
+	highlighter   *syntax.Highlighter // syntax highlighter for the current language
+	cursor        types.Position      // cursor position (rune-based col)
+	scrollY       int                 // first visible line
+	scrollX       int                 // horizontal scroll offset (display columns)
+	selection     *types.Selection    // current selection range
+	lineNumWidth  int                 // width of line number gutter
+	cursorScreenX int                 // last computed screen X of cursor (for ShowCursor)
+	cursorScreenY int                 // last computed screen Y of cursor
+	clipboard     string              // internal clipboard
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -146,9 +149,10 @@ func (e *EditorView) Render(screen tcell.Screen) {
 				style = e.theme.UIStyle("selection")
 			}
 
-			// Cursor
+			// Track cursor screen position
 			if lineNum == e.cursor.Line && runeIdx == e.cursor.Col {
-				style = style.Reverse(true)
+				e.cursorScreenX = textAreaX + dispCol
+				e.cursorScreenY = bounds.Y + row
 			}
 
 			screenX := textAreaX + dispCol
@@ -166,13 +170,18 @@ func (e *EditorView) Render(screen tcell.Screen) {
 			screenCol += w
 		}
 
-		// Draw cursor at end of line (when cursor is past last char)
+		// Track cursor position when at end of line
 		if lineNum == e.cursor.Line && e.cursor.Col >= len(lineRunes) {
 			cursorDispCol := e.runeDisplayWidth(lineNum, e.cursor.Col) - e.scrollX
 			if cursorDispCol >= 0 && cursorDispCol < textAreaWidth {
-				cursorStyle := textStyle.Reverse(true)
-				screen.SetContent(textAreaX+cursorDispCol, bounds.Y+row, ' ', nil, cursorStyle)
+				e.cursorScreenX = textAreaX + cursorDispCol
+				e.cursorScreenY = bounds.Y + row
 			}
+		}
+
+		// Place the hardware cursor (thin beam)
+		if lineNum == e.cursor.Line {
+			screen.ShowCursor(e.cursorScreenX, e.cursorScreenY)
 		}
 	}
 }
@@ -220,47 +229,206 @@ func (e *EditorView) HandleEvent(ev tcell.Event) bool {
 // handleKeyEvent processes keyboard input.
 func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 	key := ev.Key()
+	mod := ev.Modifiers()
+	shift := mod&tcell.ModShift != 0
 
+	// Shift+arrow for selection
 	switch key {
 	case tcell.KeyUp:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
 		e.MoveCursorUp()
+		if shift {
+			e.ExtendSelection()
+		}
 		return true
 	case tcell.KeyDown:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
 		e.MoveCursorDown()
+		if shift {
+			e.ExtendSelection()
+		}
 		return true
 	case tcell.KeyLeft:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
 		e.MoveCursorLeft()
+		if shift {
+			e.ExtendSelection()
+		}
 		return true
 	case tcell.KeyRight:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
 		e.MoveCursorRight()
+		if shift {
+			e.ExtendSelection()
+		}
 		return true
 	case tcell.KeyHome:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
 		e.MoveCursorToLineStart()
+		if shift {
+			e.ExtendSelection()
+		}
 		return true
 	case tcell.KeyEnd:
+		if shift {
+			e.startOrExtendSelection()
+		} else {
+			e.ClearSelection()
+		}
 		e.MoveCursorToLineEnd()
+		if shift {
+			e.ExtendSelection()
+		}
 		return true
 	case tcell.KeyCtrlA:
+		e.ClearSelection()
 		e.MoveCursorToLineStart()
 		return true
 	case tcell.KeyCtrlE:
+		e.ClearSelection()
 		e.MoveCursorToLineEnd()
 		return true
+	case tcell.KeyTab:
+		e.deleteSelectionIfAny()
+		e.InsertTab()
+		return true
 	case tcell.KeyEnter:
-		e.InsertNewline()
+		e.deleteSelectionIfAny()
+		e.InsertNewlineWithIndent()
 		return true
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		e.DeleteBack()
+		if e.selection != nil {
+			e.deleteSelectionIfAny()
+		} else {
+			e.DeleteBack()
+		}
 		return true
 	case tcell.KeyDelete:
-		e.DeleteForward()
+		if e.selection != nil {
+			e.deleteSelectionIfAny()
+		} else {
+			e.DeleteForward()
+		}
 		return true
 	case tcell.KeyRune:
+		e.deleteSelectionIfAny()
 		e.InsertChar(ev.Rune())
 		return true
 	}
 
 	return false
+}
+
+// startOrExtendSelection starts selection if none exists.
+func (e *EditorView) startOrExtendSelection() {
+	if e.selection == nil {
+		e.StartSelection()
+	}
+}
+
+// deleteSelectionIfAny deletes selected text and clears selection.
+func (e *EditorView) deleteSelectionIfAny() {
+	if e.selection == nil {
+		return
+	}
+	start, end := e.selection.Start, e.selection.End
+	if start.Line > end.Line || (start.Line == end.Line && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	// Calculate byte range and delete
+	startByte := e.runeColToByteCol(start.Line, start.Col)
+	startOffset := e.buf.LineOffset(start.Line) + startByte
+	endByte := e.runeColToByteCol(end.Line, end.Col)
+	endOffset := e.buf.LineOffset(end.Line) + endByte
+
+	length := endOffset - startOffset
+	if length > 0 {
+		e.buf.Delete(start.Line, startByte, length)
+	}
+
+	e.cursor = start
+	e.selection = nil
+	e.ensureCursorVisible()
+}
+
+// SelectedText returns the currently selected text.
+func (e *EditorView) SelectedText() string {
+	if e.selection == nil {
+		return ""
+	}
+	start, end := e.selection.Start, e.selection.End
+	if start.Line > end.Line || (start.Line == end.Line && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	startByte := e.runeColToByteCol(start.Line, start.Col)
+	startOffset := e.buf.LineOffset(start.Line) + startByte
+	endByte := e.runeColToByteCol(end.Line, end.Col)
+	endOffset := e.buf.LineOffset(end.Line) + endByte
+
+	return e.buf.Text()[startOffset:endOffset]
+}
+
+// Copy copies selected text to internal clipboard.
+func (e *EditorView) Copy() {
+	text := e.SelectedText()
+	if text != "" {
+		e.clipboard = text
+	}
+}
+
+// Cut copies selected text to clipboard and deletes it.
+func (e *EditorView) Cut() {
+	e.Copy()
+	e.deleteSelectionIfAny()
+}
+
+// Paste inserts clipboard text at cursor position.
+func (e *EditorView) Paste() {
+	if e.clipboard == "" {
+		return
+	}
+	e.deleteSelectionIfAny()
+	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+	e.buf.Insert(e.cursor.Line, byteCol, e.clipboard)
+
+	// Move cursor to end of pasted text
+	runes := []rune(e.clipboard)
+	for _, r := range runes {
+		if r == '\n' {
+			e.cursor.Line++
+			e.cursor.Col = 0
+		} else {
+			e.cursor.Col++
+		}
+	}
+	e.ensureCursorVisible()
+}
+
+// Clipboard returns the internal clipboard contents.
+func (e *EditorView) Clipboard() string {
+	return e.clipboard
 }
 
 // MoveCursorUp moves the cursor up one line.
@@ -397,6 +565,48 @@ func (e *EditorView) InsertChar(ch rune) {
 	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
 	e.buf.Insert(e.cursor.Line, byteCol, string(ch))
 	e.cursor.Col++
+	e.ensureCursorVisible()
+}
+
+// InsertTab inserts a tab (as spaces) at the cursor position.
+func (e *EditorView) InsertTab() {
+	if e.buf.ReadOnly {
+		return
+	}
+	tabSize := 4
+	// Insert spaces to next tab stop
+	col := e.cursor.Col
+	spacesToInsert := tabSize - (col % tabSize)
+	indent := ""
+	for i := 0; i < spacesToInsert; i++ {
+		indent += " "
+	}
+	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+	e.buf.Insert(e.cursor.Line, byteCol, indent)
+	e.cursor.Col += spacesToInsert
+	e.ensureCursorVisible()
+}
+
+// InsertNewlineWithIndent inserts a newline and copies leading whitespace from current line.
+func (e *EditorView) InsertNewlineWithIndent() {
+	if e.buf.ReadOnly {
+		return
+	}
+	// Get leading whitespace of current line
+	lineText := e.buf.Line(e.cursor.Line)
+	indent := ""
+	for _, ch := range lineText {
+		if ch == ' ' || ch == '\t' {
+			indent += string(ch)
+		} else {
+			break
+		}
+	}
+
+	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+	e.buf.Insert(e.cursor.Line, byteCol, "\n"+indent)
+	e.cursor.Line++
+	e.cursor.Col = utf8.RuneCountInString(indent)
 	e.ensureCursorVisible()
 }
 

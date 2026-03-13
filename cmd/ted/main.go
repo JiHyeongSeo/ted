@@ -44,11 +44,21 @@ func main() {
 	// Load keybindings
 	ed.LoadKeybindings()
 
-	// Open files from command line
+	// Open files/directories from command line
 	if len(os.Args) > 1 {
 		for _, path := range os.Args[1:] {
-			if err := ed.OpenFile(path); err != nil {
+			info, err := os.Stat(path)
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "ted: cannot open %s: %v\n", path, err)
+				continue
+			}
+			if info.IsDir() {
+				// Open directory: set sidebar root and show sidebar
+				ed.OpenDirectory(path)
+			} else {
+				if err := ed.OpenFile(path); err != nil {
+					fmt.Fprintf(os.Stderr, "ted: cannot open %s: %v\n", path, err)
+				}
 			}
 		}
 	}

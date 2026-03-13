@@ -33,6 +33,7 @@ type Editor struct {
 	searchBar    *view.SearchBar
 	running      bool
 	sidebarFocus bool // true when sidebar has keyboard focus
+	quitPending  bool // true when quit requested with unsaved changes
 }
 
 // New creates a new Editor instance.
@@ -107,6 +108,17 @@ func (e *Editor) OpenFile(path string) error {
 	return nil
 }
 
+// OpenDirectory opens a directory in the sidebar.
+func (e *Editor) OpenDirectory(path string) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	e.sidebar.SetRoot(absPath)
+	e.layout.SetSidebarVisible(true)
+	e.sidebarFocus = false // start with editor focus
+}
+
 // OpenEmpty opens a new empty buffer tab.
 func (e *Editor) OpenEmpty() {
 	buf := buffer.NewBuffer("")
@@ -118,6 +130,9 @@ func (e *Editor) OpenEmpty() {
 func (e *Editor) Run(screen tcell.Screen) error {
 	e.screen = screen
 	e.running = true
+
+	// Set cursor style to thin beam (bar)
+	screen.SetCursorStyle(tcell.CursorStyleSteadyBar)
 
 	if e.tabs.Count() == 0 {
 		e.OpenEmpty()
@@ -367,6 +382,9 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+q", "editor.quit", "")
 	e.keymap.Bind("ctrl+z", "edit.undo", "")
 	e.keymap.Bind("ctrl+y", "edit.redo", "")
+	e.keymap.Bind("ctrl+c", "edit.copy", "")
+	e.keymap.Bind("ctrl+x", "edit.cut", "")
+	e.keymap.Bind("ctrl+v", "edit.paste", "")
 	e.keymap.Bind("ctrl+f", "search.find", "")
 	e.keymap.Bind("ctrl+h", "search.replace", "")
 	e.keymap.Bind("ctrl+p", "palette.open", "")
@@ -391,6 +409,12 @@ func (e *Editor) ActiveBuffer() interface{ Text() string } {
 
 // ExecuteCommand dispatches a command by name.
 func (e *Editor) ExecuteCommand(name string) error {
+	// Clear quit warning on any other action
+	if name != "editor.quit" && e.quitPending {
+		e.quitPending = false
+		e.statusBar.ClearMessage()
+	}
+
 	switch name {
 	case "file.save":
 		if tab := e.tabs.Active(); tab != nil {
@@ -407,6 +431,20 @@ func (e *Editor) ExecuteCommand(name string) error {
 	case "edit.redo":
 		if tab := e.tabs.Active(); tab != nil {
 			tab.Buffer.Redo()
+		}
+	case "edit.copy":
+		if e.editorView != nil {
+			e.editorView.Copy()
+		}
+	case "edit.cut":
+		if e.editorView != nil {
+			e.editorView.Cut()
+			e.syncTabFromView()
+		}
+	case "edit.paste":
+		if e.editorView != nil {
+			e.editorView.Paste()
+			e.syncTabFromView()
 		}
 	case "tab.next":
 		e.tabs.Next()
@@ -431,9 +469,27 @@ func (e *Editor) ExecuteCommand(name string) error {
 	case "search.replace":
 		e.searchBar.Show(true)
 	case "editor.quit":
-		e.Stop()
+		e.tryQuit()
 	}
 	return nil
+}
+
+// tryQuit handles quit with unsaved changes warning.
+func (e *Editor) tryQuit() {
+	if e.quitPending {
+		// Second Ctrl+Q — force quit
+		e.Stop()
+		return
+	}
+	// Check if any tab has unsaved changes
+	for _, tab := range e.tabs.All() {
+		if tab.Buffer.IsDirty() {
+			e.quitPending = true
+			e.statusBar.SetMessage("Unsaved changes! Press Ctrl+Q again to quit without saving.")
+			return
+		}
+	}
+	e.Stop()
 }
 
 func (e *Editor) performSearch(query string) {
