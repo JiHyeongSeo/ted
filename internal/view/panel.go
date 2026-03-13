@@ -199,14 +199,40 @@ func (p *BottomPanel) handleKey(ev *tcell.EventKey) bool {
 }
 
 func (p *BottomPanel) handleMouse(ev *tcell.EventMouse) bool {
-	if ev.Buttons()&tcell.Button1 == 0 {
-		return false
-	}
 	mx, my := ev.Position()
 	bounds := p.Bounds()
 
-	// Check if click is in panel area
+	// Check if mouse is in panel area
 	if mx < bounds.X || mx >= bounds.X+bounds.Width || my < bounds.Y || my >= bounds.Y+bounds.Height {
+		return false
+	}
+
+	// Mouse wheel scrolling
+	contentHeight := bounds.Height - 1
+	maxScroll := p.ContentLineCount() - contentHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if ev.Buttons()&tcell.WheelUp != 0 {
+		if p.scrollY > 0 {
+			p.scrollY -= 3
+			if p.scrollY < 0 {
+				p.scrollY = 0
+			}
+		}
+		return true
+	}
+	if ev.Buttons()&tcell.WheelDown != 0 {
+		if p.scrollY < maxScroll {
+			p.scrollY += 3
+			if p.scrollY > maxScroll {
+				p.scrollY = maxScroll
+			}
+		}
+		return true
+	}
+
+	if ev.Buttons()&tcell.Button1 == 0 {
 		return false
 	}
 

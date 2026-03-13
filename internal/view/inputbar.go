@@ -2,6 +2,7 @@ package view
 
 import (
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/seoji/ted/internal/syntax"
 	"github.com/seoji/ted/internal/types"
 )
@@ -11,7 +12,7 @@ type InputBar struct {
 	BaseComponent
 	theme    *syntax.Theme
 	prompt   string
-	value    string
+	value    []rune
 	visible  bool
 	onSubmit func(value string)
 	onCancel func()
@@ -26,13 +27,13 @@ func NewInputBar(theme *syntax.Theme) *InputBar {
 func (ib *InputBar) Show(prompt string) {
 	ib.visible = true
 	ib.prompt = prompt
-	ib.value = ""
+	ib.value = nil
 }
 
 // Hide hides the input bar.
 func (ib *InputBar) Hide() {
 	ib.visible = false
-	ib.value = ""
+	ib.value = nil
 }
 
 // IsVisible returns whether the input bar is shown.
@@ -76,14 +77,16 @@ func (ib *InputBar) Render(screen tcell.Screen) {
 		screen.SetContent(x, bounds.Y, ' ', nil, style)
 	}
 
-	text := ib.prompt + ib.value
+	text := []rune(ib.prompt)
+	text = append(text, ib.value...)
 	x := bounds.X + 1
 	for _, ch := range text {
-		if x >= bounds.X+bounds.Width-1 {
+		w := runewidth.RuneWidth(ch)
+		if x+w > bounds.X+bounds.Width-1 {
 			break
 		}
 		screen.SetContent(x, bounds.Y, ch, nil, style)
-		x++
+		x += w
 	}
 }
 
@@ -106,7 +109,7 @@ func (ib *InputBar) HandleEvent(ev tcell.Event) bool {
 		}
 		return true
 	case tcell.KeyEnter:
-		val := ib.value
+		val := string(ib.value)
 		ib.Hide()
 		if ib.onSubmit != nil {
 			ib.onSubmit(val)
@@ -118,7 +121,7 @@ func (ib *InputBar) HandleEvent(ev tcell.Event) bool {
 		}
 		return true
 	case tcell.KeyRune:
-		ib.value += string(keyEv.Rune())
+		ib.value = append(ib.value, keyEv.Rune())
 		return true
 	}
 

@@ -43,6 +43,7 @@ type Editor struct {
 	lspHandler   *lsp.NotificationHandler
 	projectRoot  string // root directory for project search and LSP
 	projectSearchResults []search.FileMatch // cached project search results
+	projectSearchQuery   string              // the query used for project search
 }
 
 // New creates a new Editor instance.
@@ -847,6 +848,7 @@ func (e *Editor) showProjectSearch() {
 			return
 		}
 		e.projectSearchResults = results
+		e.projectSearchQuery = query
 		// Show results in the bottom panel "Output" tab
 		var lines []string
 		for _, r := range results {
@@ -873,6 +875,7 @@ func (e *Editor) showProjectSearch() {
 			if e.editorView != nil {
 				e.editorView.SetCursorPosition(types.Position{Line: first.Line - 1, Col: first.Col - 1})
 				e.syncTabFromView()
+				e.highlightProjectSearchInFile()
 			}
 		}
 	})
@@ -920,6 +923,8 @@ func (e *Editor) navigatePanelLine(tabIdx int, lineIdx int) {
 			if e.editorView != nil {
 				e.editorView.SetCursorPosition(types.Position{Line: r.Line - 1, Col: r.Col - 1})
 				e.syncTabFromView()
+				// Highlight all matches of the search query in this file
+				e.highlightProjectSearchInFile()
 			}
 			return
 		}
@@ -945,6 +950,34 @@ func (e *Editor) navigatePanelLine(tabIdx int, lineIdx int) {
 			}
 		}
 	}
+}
+
+// highlightProjectSearchInFile highlights all occurrences of the project search
+// query in the currently open file.
+func (e *Editor) highlightProjectSearchInFile() {
+	if e.projectSearchQuery == "" || e.editorView == nil {
+		return
+	}
+	tab := e.tabs.Active()
+	if tab == nil {
+		return
+	}
+	s, err := search.NewInFileSearch(e.projectSearchQuery, false, false)
+	if err != nil {
+		return
+	}
+	matches := s.FindAll(tab.Buffer.Text())
+	var highlights []view.SearchHighlight
+	for _, m := range matches {
+		runeCol := byteColToRuneCol(tab.Buffer.Line(m.Line), m.Col)
+		runeLen := byteColToRuneCol(tab.Buffer.Line(m.Line)[m.Col:], m.Length)
+		highlights = append(highlights, view.SearchHighlight{
+			Line:   m.Line,
+			Col:    runeCol,
+			Length: runeLen,
+		})
+	}
+	e.editorView.SetSearchHighlights(highlights)
 }
 
 // --- LSP integration ---

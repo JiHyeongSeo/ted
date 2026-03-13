@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/seoji/ted/internal/search"
 	"github.com/seoji/ted/internal/syntax"
 )
@@ -11,18 +12,18 @@ import (
 // SearchBar provides inline find/replace functionality.
 type SearchBar struct {
 	BaseComponent
-	theme       *syntax.Theme
-	query       string
-	replacement string
-	visible     bool
-	replaceMode bool
+	theme           *syntax.Theme
+	query           []rune
+	replacement     []rune
+	visible         bool
+	replaceMode     bool
 	cursorInReplace bool
-	matches     []search.Match
-	currentMatch int
-	onSearch    func(query string)
-	onReplace   func(query, replacement string)
-	onReplaceAll func(query, replacement string)
-	onDismiss   func()
+	matches         []search.Match
+	currentMatch    int
+	onSearch        func(query string)
+	onReplace       func(query, replacement string)
+	onReplaceAll    func(query, replacement string)
+	onDismiss       func()
 }
 
 // NewSearchBar creates a new SearchBar.
@@ -36,8 +37,8 @@ func NewSearchBar(theme *syntax.Theme) *SearchBar {
 func (sb *SearchBar) Show(replaceMode bool) {
 	sb.visible = true
 	sb.replaceMode = replaceMode
-	sb.query = ""
-	sb.replacement = ""
+	sb.query = nil
+	sb.replacement = nil
 	sb.cursorInReplace = false
 	sb.currentMatch = 0
 	sb.matches = nil
@@ -60,12 +61,12 @@ func (sb *SearchBar) ReplaceMode() bool {
 
 // Query returns the current search query.
 func (sb *SearchBar) Query() string {
-	return sb.query
+	return string(sb.query)
 }
 
 // Replacement returns the current replacement text.
 func (sb *SearchBar) Replacement() string {
-	return sb.replacement
+	return string(sb.replacement)
 }
 
 // SetMatches updates the match results.
@@ -106,6 +107,20 @@ func (sb *SearchBar) SetOnDismiss(fn func()) {
 	sb.onDismiss = fn
 }
 
+// drawRunes draws runes to the screen with proper wide character handling.
+// Returns the next x position.
+func drawRunes(screen tcell.Screen, x, y, maxX int, runes []rune, style tcell.Style) int {
+	for _, ch := range runes {
+		w := runewidth.RuneWidth(ch)
+		if x+w > maxX {
+			break
+		}
+		screen.SetContent(x, y, ch, nil, style)
+		x += w
+	}
+	return x
+}
+
 // Render draws the search bar.
 func (sb *SearchBar) Render(screen tcell.Screen) {
 	if !sb.visible {
@@ -114,59 +129,33 @@ func (sb *SearchBar) Render(screen tcell.Screen) {
 
 	bounds := sb.Bounds()
 	style := sb.theme.UIStyle("panel")
+	maxX := bounds.X + bounds.Width
 
 	// Clear area
 	for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {
-		for x := bounds.X; x < bounds.X+bounds.Width; x++ {
+		for x := bounds.X; x < maxX; x++ {
 			screen.SetContent(x, y, ' ', nil, style)
 		}
 	}
 
 	// Search row
-	searchLabel := " Find: "
+	searchLabel := []rune(" Find: ")
 	matchInfo := ""
 	if len(sb.matches) > 0 {
 		matchInfo = fmt.Sprintf(" (%d/%d)", sb.currentMatch+1, len(sb.matches))
-	} else if sb.query != "" {
+	} else if len(sb.query) > 0 {
 		matchInfo = " (0 results)"
 	}
 
-	x := bounds.X
-	for _, ch := range searchLabel {
-		if x < bounds.X+bounds.Width {
-			screen.SetContent(x, bounds.Y, ch, nil, style)
-			x++
-		}
-	}
-	for _, ch := range sb.query {
-		if x < bounds.X+bounds.Width {
-			screen.SetContent(x, bounds.Y, ch, nil, style)
-			x++
-		}
-	}
-	for _, ch := range matchInfo {
-		if x < bounds.X+bounds.Width {
-			screen.SetContent(x, bounds.Y, ch, nil, style)
-			x++
-		}
-	}
+	x := drawRunes(screen, bounds.X, bounds.Y, maxX, searchLabel, style)
+	x = drawRunes(screen, x, bounds.Y, maxX, sb.query, style)
+	drawRunes(screen, x, bounds.Y, maxX, []rune(matchInfo), style)
 
 	// Replace row (if in replace mode)
 	if sb.replaceMode && bounds.Height > 1 {
-		replaceLabel := " Replace: "
-		x = bounds.X
-		for _, ch := range replaceLabel {
-			if x < bounds.X+bounds.Width {
-				screen.SetContent(x, bounds.Y+1, ch, nil, style)
-				x++
-			}
-		}
-		for _, ch := range sb.replacement {
-			if x < bounds.X+bounds.Width {
-				screen.SetContent(x, bounds.Y+1, ch, nil, style)
-				x++
-			}
-		}
+		replaceLabel := []rune(" Replace: ")
+		x = drawRunes(screen, bounds.X, bounds.Y+1, maxX, replaceLabel, style)
+		drawRunes(screen, x, bounds.Y+1, maxX, sb.replacement, style)
 	}
 }
 
@@ -190,7 +179,7 @@ func (sb *SearchBar) HandleEvent(ev tcell.Event) bool {
 		return true
 	case tcell.KeyEnter:
 		if sb.cursorInReplace && sb.onReplace != nil {
-			sb.onReplace(sb.query, sb.replacement)
+			sb.onReplace(string(sb.query), string(sb.replacement))
 		} else {
 			// Move to next match
 			if len(sb.matches) > 0 {
@@ -212,18 +201,18 @@ func (sb *SearchBar) HandleEvent(ev tcell.Event) bool {
 			if len(sb.query) > 0 {
 				sb.query = sb.query[:len(sb.query)-1]
 				if sb.onSearch != nil {
-					sb.onSearch(sb.query)
+					sb.onSearch(string(sb.query))
 				}
 			}
 		}
 		return true
 	case tcell.KeyRune:
 		if sb.cursorInReplace {
-			sb.replacement += string(keyEv.Rune())
+			sb.replacement = append(sb.replacement, keyEv.Rune())
 		} else {
-			sb.query += string(keyEv.Rune())
+			sb.query = append(sb.query, keyEv.Rune())
 			if sb.onSearch != nil {
-				sb.onSearch(sb.query)
+				sb.onSearch(string(sb.query))
 			}
 		}
 		return true

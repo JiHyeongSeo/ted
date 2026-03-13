@@ -33,39 +33,39 @@ func ParseTheme(data []byte) (*Theme, error) {
 	return t, nil
 }
 
-// DefaultTheme returns a built-in Tango Dark theme.
+// DefaultTheme returns a built-in Monokai theme.
 func DefaultTheme() *Theme {
 	return &Theme{
-		Name: "Tango Dark",
+		Name: "Monokai",
 		Colors: map[string]string{
-			"keyword":     "#ad7fa8", // Tango plum
-			"string":      "#73d216", // Tango chameleon
-			"function":    "#729fcf", // Tango sky blue
-			"comment":     "#888a85", // Tango aluminium 4
-			"type":        "#fce94f", // Tango butter
-			"number":      "#fcaf3e", // Tango orange
-			"operator":    "#34e2e2", // Tango cyan
-			"variable":    "#d3d7cf", // Tango aluminium 2
-			"constant":    "#fcaf3e", // Tango orange
-			"property":    "#729fcf", // Tango sky blue
-			"punctuation": "#babdb6", // Tango aluminium 3
+			"keyword":     "#f92672", // pink
+			"string":      "#e6db74", // yellow
+			"function":    "#a6e22e", // green
+			"comment":     "#75715e", // grey
+			"type":        "#66d9ef", // cyan
+			"number":      "#ae81ff", // purple
+			"operator":    "#f92672", // pink
+			"variable":    "#f8f8f2", // white
+			"constant":    "#ae81ff", // purple
+			"property":    "#66d9ef", // cyan
+			"punctuation": "#f8f8f2", // white
 		},
 		UI: map[string]string{
-			"background":          "#2e3436", // Tango aluminium 7
-			"foreground":          "#d3d7cf", // Tango aluminium 2
-			"cursor":              "#eeeeec", // Tango aluminium 1
-			"selection":           "#4e585d", // slightly lighter bg
-			"lineNumber":          "#555753", // Tango aluminium 5
-			"lineNumberActive":    "#babdb6", // Tango aluminium 3
-			"statusBar":           "#1c1f20", // darker than bg
-			"statusBarForeground": "#d3d7cf",
-			"tabActive":           "#2e3436", // same as bg
-			"tabInactive":         "#1c1f20", // darker
-			"sidebar":             "#1c1f20",
-			"panelBackground":     "#1c1f20",
-			"errorForeground":     "#ef2929", // Tango scarlet red
-			"warningForeground":   "#fce94f", // Tango butter
-			"matchHighlight":      "#fce94f",
+			"background":          "#272822",
+			"foreground":          "#f8f8f2",
+			"cursor":              "#f8f8f0",
+			"selection":           "#49483e",
+			"lineNumber":          "#90908a",
+			"lineNumberActive":    "#f8f8f2",
+			"statusBar":           "#1e1f1c",
+			"statusBarForeground": "#f8f8f2",
+			"tabActive":           "#272822",
+			"tabInactive":         "#1e1f1c",
+			"sidebar":             "#1e1f1c",
+			"panelBackground":     "#1e1f1c",
+			"errorForeground":     "#f92672",
+			"warningForeground":   "#e6db74",
+			"matchHighlight":      "#e6db74",
 		},
 	}
 }
