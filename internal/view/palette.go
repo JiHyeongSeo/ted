@@ -195,10 +195,18 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 
 	// Draw filtered items (not in go-to-line mode)
 	if p.mode != PaletteModeGoLine {
-		for i := 0; i < paletteHeight-2 && i < len(p.filtered); i++ {
+		visibleCount := paletteHeight - 2
+		// Calculate scroll offset to keep selected item visible
+		scrollOffset := 0
+		if p.selectedIdx >= visibleCount {
+			scrollOffset = p.selectedIdx - visibleCount + 1
+		}
+
+		for i := 0; i < visibleCount && i+scrollOffset < len(p.filtered); i++ {
+			itemIdx := i + scrollOffset
 			y := startY + 1 + i
 			style := bgStyle
-			if i == p.selectedIdx {
+			if itemIdx == p.selectedIdx {
 				style = selStyle
 			}
 
@@ -206,9 +214,9 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 				screen.SetContent(x, y, ' ', nil, style)
 			}
 
-			label := "  " + p.filtered[i].Label
-			if p.filtered[i].Description != "" {
-				label += "  " + p.filtered[i].Description
+			label := "  " + p.filtered[itemIdx].Label
+			if p.filtered[itemIdx].Description != "" {
+				label += "  " + p.filtered[itemIdx].Description
 			}
 
 			x := startX + 1
