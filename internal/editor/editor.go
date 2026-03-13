@@ -286,6 +286,14 @@ func (e *Editor) render() {
 		e.sidebar.Render(e.screen)
 	}
 
+	// Render sidebar separator
+	if r, ok := regions["separator"]; ok {
+		sepStyle := e.theme.UIStyle("sidebar").Foreground(tcell.ColorDarkGray)
+		for y := r.Y; y < r.Y+r.Height; y++ {
+			e.screen.SetContent(r.X, y, '│', nil, sepStyle)
+		}
+	}
+
 	// Render editor view
 	if r, ok := regions["editor"]; ok && e.editorView != nil {
 		e.editorView.SetBounds(r)

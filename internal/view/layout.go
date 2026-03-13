@@ -68,16 +68,23 @@ func (l *Layout) Compute(width, height int) map[string]types.Rect {
 	}
 
 	editorHeight := middleHeight - panelHeight
-	editorWidth := width - sidebarWidth
+
+	// Add 1-col separator between sidebar and editor
+	separatorWidth := 0
+	if sidebarWidth > 0 {
+		separatorWidth = 1
+	}
+	editorWidth := width - sidebarWidth - separatorWidth
 
 	if sidebarWidth > 0 {
 		regions["sidebar"] = types.Rect{X: 0, Y: y, Width: sidebarWidth, Height: middleHeight}
+		regions["separator"] = types.Rect{X: sidebarWidth, Y: y, Width: 1, Height: middleHeight}
 	}
 
-	regions["editor"] = types.Rect{X: sidebarWidth, Y: y, Width: editorWidth, Height: editorHeight}
+	regions["editor"] = types.Rect{X: sidebarWidth + separatorWidth, Y: y, Width: editorWidth, Height: editorHeight}
 
 	if panelHeight > 0 {
-		regions["panel"] = types.Rect{X: sidebarWidth, Y: y + editorHeight, Width: editorWidth, Height: panelHeight}
+		regions["panel"] = types.Rect{X: sidebarWidth + separatorWidth, Y: y + editorHeight, Width: editorWidth, Height: panelHeight}
 	}
 
 	return regions
