@@ -453,11 +453,16 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.tabs.Previous()
 		e.syncViewToTab()
 	case "sidebar.toggle":
-		visible := !e.layout.SidebarVisible()
-		e.layout.SetSidebarVisible(visible)
-		e.sidebarFocus = visible
-	case "sidebar.focus":
-		if e.layout.SidebarVisible() {
+		if !e.layout.SidebarVisible() {
+			// Hidden → show + focus sidebar
+			e.layout.SetSidebarVisible(true)
+			e.sidebarFocus = true
+		} else if e.sidebarFocus {
+			// Sidebar focused → hide sidebar + return to editor
+			e.layout.SetSidebarVisible(false)
+			e.sidebarFocus = false
+		} else {
+			// Sidebar visible, editor focused → focus sidebar
 			e.sidebarFocus = true
 		}
 	case "panel.toggle":
