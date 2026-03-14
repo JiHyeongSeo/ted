@@ -238,7 +238,7 @@ func (e *Editor) OpenDirectory(path string) {
 	e.projectRoot = absPath
 	e.diffTracker, _ = git.NewDiffTracker(e.projectRoot)
 	e.layout.SetSidebarVisible(true)
-	e.sidebarFocus = false // start with editor focus
+	e.sidebarFocus = true // start with sidebar focus
 }
 
 // OpenEmpty opens a new empty buffer tab.
