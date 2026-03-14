@@ -123,7 +123,8 @@ func (e *EditorView) Render(screen tcell.Screen) {
 			}
 			if colorKey != "" {
 				if hex := e.theme.UI[colorKey]; hex != "" {
-					lineNumStyle = lineNumStyle.Background(e.theme.ResolveColor(hex))
+					lineNumStyle = lineNumStyle.Background(e.theme.ResolveColor(hex)).
+						Foreground(e.theme.ResolveColor(e.theme.UI["lineNumberActive"]))
 				}
 			}
 		}

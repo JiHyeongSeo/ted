@@ -66,9 +66,9 @@ func DefaultTheme() *Theme {
 			"errorForeground":     "#f44747",
 			"warningForeground":   "#cca700",
 			"matchHighlight":      "#e2c56d",
-			"gitAdded":            "#2d4a2d",
-			"gitModified":         "#0c3d4d",
-			"gitDeleted":          "#4d1a1a",
+			"gitAdded":            "#254525",
+			"gitModified":         "#153050",
+			"gitDeleted":          "#501515",
 		},
 	}
 }
