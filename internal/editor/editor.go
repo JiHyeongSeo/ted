@@ -1165,6 +1165,8 @@ func (e *Editor) showProjectSearch() {
 		e.panel.SetContent(1, lines) // "Output" tab
 		e.panel.SetActiveTab(1)
 		e.layout.SetPanelVisible(true)
+		e.panelFocus = true
+		e.sidebarFocus = false
 		e.statusBar.SetMessage(fmt.Sprintf("Found %d results", len(results)))
 
 		// If there are results, jump to first one
@@ -1218,11 +1220,27 @@ func (e *Editor) navigatePanelLine(tabIdx int, lineIdx int) {
 		resultIdx := lineIdx - 1
 		if resultIdx >= 0 && resultIdx < len(e.projectSearchResults) {
 			r := e.projectSearchResults[resultIdx]
-			e.OpenFile(r.File)
+			// If file is already open, just switch tab without recreating EditorView
+			if idx := e.tabs.FindByPath(r.File); idx >= 0 {
+				if e.editorView != nil {
+					e.syncTabFromView()
+				}
+				e.tabs.SetActive(idx)
+				e.syncViewToTab()
+			} else {
+				e.OpenFile(r.File)
+			}
 			if e.editorView != nil {
+				// Set bounds before positioning so ensureCursorVisible can scroll
+				if e.editorView.Bounds().Width == 0 {
+					w, h := e.screen.Size()
+					regions := e.layout.Compute(w, h)
+					if r, ok := regions["editor"]; ok {
+						e.editorView.SetBounds(r)
+					}
+				}
 				e.editorView.SetCursorPosition(types.Position{Line: r.Line - 1, Col: r.Col - 1})
 				e.syncTabFromView()
-				// Highlight all matches of the search query in this file
 				e.highlightProjectSearchInFile()
 			}
 			return
