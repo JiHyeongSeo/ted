@@ -2,6 +2,7 @@ package view
 
 import (
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/seoji/ted/internal/syntax"
 )
 
@@ -145,11 +146,12 @@ func (p *BottomPanel) Render(screen tcell.Screen) {
 			}
 
 			for _, ch := range line {
-				if x >= bounds.X+bounds.Width {
+				w := runewidth.RuneWidth(ch)
+				if x+w > bounds.X+bounds.Width {
 					break
 				}
 				screen.SetContent(x, y, ch, nil, style)
-				x++
+				x += w
 			}
 		}
 	}
