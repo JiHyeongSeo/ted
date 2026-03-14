@@ -11,6 +11,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/seoji/ted/internal/buffer"
 	"github.com/seoji/ted/internal/config"
+	"github.com/seoji/ted/internal/git"
 	"github.com/seoji/ted/internal/input"
 	"github.com/seoji/ted/internal/lsp"
 	"github.com/seoji/ted/internal/search"
@@ -50,6 +51,7 @@ type Editor struct {
 	lastHoverLine int // track last hover position to avoid duplicate requests
 	lastHoverCol  int
 	pythonEnv     *PythonEnv // current Python environment
+	diffTracker *git.DiffTracker
 }
 
 // New creates a new Editor instance.
@@ -233,6 +235,7 @@ func (e *Editor) OpenDirectory(path string) {
 	}
 	e.sidebar.SetRoot(absPath)
 	e.projectRoot = absPath
+	e.diffTracker, _ = git.NewDiffTracker(e.projectRoot)
 	e.layout.SetSidebarVisible(true)
 	e.sidebarFocus = false // start with editor focus
 }
@@ -262,6 +265,9 @@ func (e *Editor) Run(screen tcell.Screen) error {
 		e.sidebar.SetRoot(cwd)
 		if e.projectRoot == "" {
 			e.projectRoot = cwd
+		}
+		if e.diffTracker == nil {
+			e.diffTracker, _ = git.NewDiffTracker(e.projectRoot)
 		}
 	}
 
@@ -611,6 +617,7 @@ func (e *Editor) syncViewToTab() {
 	e.editorView.SetLanguage(tab.Language)
 	e.editorView.SetCursorPosition(tab.Cursor)
 	e.editorView.SetScrollY(tab.ScrollY)
+	e.updateGutterMarkers()
 }
 
 func (e *Editor) syncTabFromView() {
@@ -620,6 +627,21 @@ func (e *Editor) syncTabFromView() {
 	}
 	tab.Cursor = e.editorView.CursorPosition()
 	tab.ScrollY, tab.ScrollX = e.editorView.ScrollPosition()
+}
+
+func (e *Editor) updateGutterMarkers() {
+	if e.diffTracker == nil || e.editorView == nil {
+		return
+	}
+	tab := e.tabs.Active()
+	if tab == nil || tab.Buffer.Path() == "" {
+		return
+	}
+	markers, err := e.diffTracker.ComputeMarkers(tab.Buffer.Path())
+	if err != nil {
+		return
+	}
+	e.editorView.SetGutterMarkers(markers)
 }
 
 func (e *Editor) registerCommands() {
@@ -775,6 +797,7 @@ func (e *Editor) ExecuteCommand(name string) error {
 			if client := e.lspManager.GetClient(tab.Language); client != nil && tab.Buffer.Path() != "" {
 				lsp.DidSave(client, lsp.FileURIFromPath(tab.Buffer.Path()), tab.Buffer.Text())
 			}
+			e.updateGutterMarkers()
 		}
 	case "file.close":
 		e.closeCurrentTab()
