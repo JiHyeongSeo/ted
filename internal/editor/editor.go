@@ -41,6 +41,7 @@ type Editor struct {
 	tooltip      *view.Tooltip
 	running      bool
 	sidebarFocus bool // true when sidebar has keyboard focus
+	panelFocus   bool // true when bottom panel has keyboard focus
 	quitPending  bool // true when quit requested with unsaved changes
 	lspManager   *lsp.ServerManager
 	lspHandler   *lsp.NotificationHandler
@@ -370,6 +371,22 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		return
 	}
 
+	// Panel keyboard navigation when focused
+	if e.panelFocus && e.layout.PanelVisible() {
+		if ev.Key() == tcell.KeyEscape {
+			e.panelFocus = false
+			e.projectSearchQuery = ""
+			e.projectSearchResults = nil
+			if e.editorView != nil {
+				e.editorView.ClearSearchHighlights()
+			}
+			e.layout.SetPanelVisible(false)
+			return
+		}
+		e.panel.HandleEvent(ev)
+		return
+	}
+
 	// Escape in editor: clear search highlights and close panel
 	if ev.Key() == tcell.KeyEscape {
 		if e.projectSearchQuery != "" || e.layout.PanelVisible() {
@@ -448,10 +465,12 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		e.sidebarFocus = false
 	}
 
-	// Panel click — navigate to result
+	// Panel click — navigate to result and set panel focus
 	if e.layout.PanelVisible() {
 		pb := e.panel.Bounds()
 		if mx >= pb.X && mx < pb.X+pb.Width && my >= pb.Y && my < pb.Y+pb.Height {
+			e.panelFocus = true
+			e.sidebarFocus = false
 			e.panel.HandleEvent(ev)
 			return
 		}
@@ -463,6 +482,7 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		if mx >= eb.X && mx < eb.X+eb.Width && my >= eb.Y && my < eb.Y+eb.Height {
 			if btn == tcell.Button1 {
 				e.sidebarFocus = false
+				e.panelFocus = false
 				e.tooltip.Hide()
 				e.editorView.HandleMouseClick(mx, my)
 				e.syncTabFromView()
@@ -744,7 +764,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+x", "edit.cut", "")
 	e.keymap.Bind("ctrl+v", "edit.paste", "")
 	e.keymap.Bind("ctrl+f", "search.find", "")
-	e.keymap.Bind("ctrl+h", "search.replace", "")
+	e.keymap.Bind("ctrl+r", "search.replace", "")
 	e.keymap.Bind("ctrl+p", "palette.open", "")
 	e.keymap.Bind("ctrl+b", "sidebar.toggle", "")
 	e.keymap.Bind("alt+left", "sidebar.focus", "")
