@@ -314,6 +314,7 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 		return true
 	case tcell.KeyLeft:
 		ctrl := mod&tcell.ModCtrl != 0
+		alt := mod&tcell.ModAlt != 0
 		if shift {
 			e.startOrExtendSelection()
 		} else {
@@ -323,6 +324,8 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 			e.MoveCursorToLineStart()
 		} else if ctrl {
 			e.MoveCursorWordLeft()
+		} else if alt {
+			e.MoveCursorToLineStart()
 		} else {
 			e.MoveCursorLeft()
 		}
@@ -332,6 +335,7 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 		return true
 	case tcell.KeyRight:
 		ctrl := mod&tcell.ModCtrl != 0
+		alt := mod&tcell.ModAlt != 0
 		if shift {
 			e.startOrExtendSelection()
 		} else {
@@ -341,6 +345,8 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 			e.MoveCursorToLineEnd()
 		} else if ctrl {
 			e.MoveCursorWordRight()
+		} else if alt {
+			e.MoveCursorToLineEnd()
 		} else {
 			e.MoveCursorRight()
 		}
