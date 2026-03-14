@@ -521,6 +521,7 @@ func (e *EditorView) Paste() {
 			e.cursor.Col++
 		}
 	}
+	e.reparseTS()
 	e.ensureCursorVisible()
 }
 
@@ -793,6 +794,11 @@ func (e *EditorView) reparseTS() {
 	}
 }
 
+// ReparseHighlighting re-parses syntax highlighting (for external callers like undo/redo).
+func (e *EditorView) ReparseHighlighting() {
+	e.reparseTS()
+}
+
 // InsertChar inserts a character at the cursor position.
 func (e *EditorView) InsertChar(ch rune) {
 	if e.buf.ReadOnly {
@@ -801,6 +807,26 @@ func (e *EditorView) InsertChar(ch rune) {
 	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
 	e.buf.Insert(e.cursor.Line, byteCol, string(ch))
 	e.cursor.Col++
+	e.reparseTS()
+	e.ensureCursorVisible()
+}
+
+// InsertText inserts a multi-character string at the cursor position (used for paste).
+func (e *EditorView) InsertText(text string) {
+	if e.buf.ReadOnly || text == "" {
+		return
+	}
+	e.deleteSelectionIfAny()
+	byteCol := e.runeColToByteCol(e.cursor.Line, e.cursor.Col)
+	e.buf.Insert(e.cursor.Line, byteCol, text)
+	for _, r := range text {
+		if r == '\n' {
+			e.cursor.Line++
+			e.cursor.Col = 0
+		} else {
+			e.cursor.Col++
+		}
+	}
 	e.reparseTS()
 	e.ensureCursorVisible()
 }
