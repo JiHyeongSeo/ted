@@ -91,9 +91,10 @@ func (t *Theme) UIStyle(element string) tcell.Style {
 	case "tabbar.active":
 		bg = t.ResolveColor(t.UI["tabActive"])
 		fg = t.ResolveColor(t.UI["foreground"])
+		return tcell.StyleDefault.Foreground(fg).Background(bg).Underline(true)
 	case "tabbar.inactive":
 		bg = t.ResolveColor(t.UI["tabInactive"])
-		fg = t.ResolveColor(t.UI["foreground"])
+		fg = t.ResolveColor(t.UI["lineNumber"]) // dimmer text for inactive tabs
 	case "sidebar":
 		bg = t.ResolveColor(t.UI["sidebar"])
 		fg = t.ResolveColor(t.UI["foreground"])
