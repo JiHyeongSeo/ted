@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
@@ -312,23 +313,37 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 		}
 		return true
 	case tcell.KeyLeft:
+		ctrl := mod&tcell.ModCtrl != 0
 		if shift {
 			e.startOrExtendSelection()
 		} else {
 			e.ClearSelection()
 		}
-		e.MoveCursorLeft()
+		if ctrl && shift {
+			e.MoveCursorToLineStart()
+		} else if ctrl {
+			e.MoveCursorWordLeft()
+		} else {
+			e.MoveCursorLeft()
+		}
 		if shift {
 			e.ExtendSelection()
 		}
 		return true
 	case tcell.KeyRight:
+		ctrl := mod&tcell.ModCtrl != 0
 		if shift {
 			e.startOrExtendSelection()
 		} else {
 			e.ClearSelection()
 		}
-		e.MoveCursorRight()
+		if ctrl && shift {
+			e.MoveCursorToLineEnd()
+		} else if ctrl {
+			e.MoveCursorWordRight()
+		} else {
+			e.MoveCursorRight()
+		}
 		if shift {
 			e.ExtendSelection()
 		}
@@ -591,6 +606,75 @@ func (e *EditorView) MoveCursorLeft() {
 		e.cursor.Line--
 		e.cursor.Col = e.runeLen(e.cursor.Line)
 	}
+	e.ensureCursorVisible()
+}
+
+// MoveCursorWordLeft moves the cursor left by one word.
+func (e *EditorView) MoveCursorWordLeft() {
+	runes := []rune(e.buf.Line(e.cursor.Line))
+	col := e.cursor.Col
+
+	if col == 0 {
+		// Move to end of previous line
+		if e.cursor.Line > 0 {
+			e.cursor.Line--
+			e.cursor.Col = e.runeLen(e.cursor.Line)
+		}
+		e.ensureCursorVisible()
+		return
+	}
+
+	// Skip whitespace backward
+	for col > 0 && col <= len(runes) && unicode.IsSpace(runes[col-1]) {
+		col--
+	}
+	// Skip word characters backward
+	if col > 0 && col <= len(runes) && unicode.IsPunct(runes[col-1]) {
+		for col > 0 && col <= len(runes) && unicode.IsPunct(runes[col-1]) {
+			col--
+		}
+	} else {
+		for col > 0 && col <= len(runes) && !unicode.IsSpace(runes[col-1]) && !unicode.IsPunct(runes[col-1]) {
+			col--
+		}
+	}
+
+	e.cursor.Col = col
+	e.ensureCursorVisible()
+}
+
+// MoveCursorWordRight moves the cursor right by one word.
+func (e *EditorView) MoveCursorWordRight() {
+	runes := []rune(e.buf.Line(e.cursor.Line))
+	col := e.cursor.Col
+	lineLen := len(runes)
+
+	if col >= lineLen {
+		// Move to start of next line
+		if e.cursor.Line < e.buf.LineCount()-1 {
+			e.cursor.Line++
+			e.cursor.Col = 0
+		}
+		e.ensureCursorVisible()
+		return
+	}
+
+	// Skip current word characters forward
+	if unicode.IsPunct(runes[col]) {
+		for col < lineLen && unicode.IsPunct(runes[col]) {
+			col++
+		}
+	} else {
+		for col < lineLen && !unicode.IsSpace(runes[col]) && !unicode.IsPunct(runes[col]) {
+			col++
+		}
+	}
+	// Skip whitespace forward
+	for col < lineLen && unicode.IsSpace(runes[col]) {
+		col++
+	}
+
+	e.cursor.Col = col
 	e.ensureCursorVisible()
 }
 
