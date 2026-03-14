@@ -36,6 +36,8 @@ type EditorView struct {
 	clipboard        string                // internal clipboard
 	searchHighlights []SearchHighlight     // search match highlights
 	gutterMarkers    map[int]types.GutterMark
+	blameLines       []string // pre-formatted blame text per line (0-based)
+	blameWidth       int      // display width of blame column
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -91,9 +93,10 @@ func (e *EditorView) Render(screen tcell.Screen) {
 	e.updateLineNumWidth()
 	bounds := e.Bounds()
 
-	// Calculate visible area
-	textAreaX := bounds.X + e.lineNumWidth
-	textAreaWidth := bounds.Width - e.lineNumWidth
+	// Calculate visible area (line nums + blame + text)
+	gutterWidth := e.lineNumWidth + e.blameWidth
+	textAreaX := bounds.X + gutterWidth
+	textAreaWidth := bounds.Width - gutterWidth
 	if textAreaWidth < 0 {
 		textAreaWidth = 0
 	}
@@ -135,6 +138,25 @@ func (e *EditorView) Render(screen tcell.Screen) {
 			screen.SetContent(bounds.X+i, bounds.Y+row, ch, nil, lineNumStyle)
 		}
 		screen.SetContent(bounds.X+e.lineNumWidth-1, bounds.Y+row, ' ', nil, lineNumStyle)
+
+		// Draw blame column if active
+		if e.blameWidth > 0 {
+			blameStyle := e.theme.UIStyle("linenumber") // dim style
+			bx := bounds.X + e.lineNumWidth
+			// Clear blame area
+			for cx := bx; cx < bx+e.blameWidth; cx++ {
+				screen.SetContent(cx, bounds.Y+row, ' ', nil, blameStyle)
+			}
+			if lineNum < len(e.blameLines) {
+				for _, ch := range e.blameLines[lineNum] {
+					if bx >= bounds.X+e.lineNumWidth+e.blameWidth {
+						break
+					}
+					screen.SetContent(bx, bounds.Y+row, ch, nil, blameStyle)
+					bx++
+				}
+			}
+		}
 
 		// Draw line content with wide character support
 		lineText := e.buf.Line(lineNum)
@@ -1084,10 +1106,27 @@ func (e *EditorView) SetGutterMarkers(markers map[int]types.GutterMark) {
 	e.gutterMarkers = markers
 }
 
+// SetBlame sets the blame info for display in the gutter.
+func (e *EditorView) SetBlame(lines []string, width int) {
+	e.blameLines = lines
+	e.blameWidth = width
+}
+
+// ClearBlame removes blame info from the display.
+func (e *EditorView) ClearBlame() {
+	e.blameLines = nil
+	e.blameWidth = 0
+}
+
+// HasBlame returns true if blame is currently displayed.
+func (e *EditorView) HasBlame() bool {
+	return e.blameWidth > 0
+}
+
 // HandleMouseClick moves the cursor to the screen position clicked.
 func (e *EditorView) HandleMouseClick(screenX, screenY int) {
 	bounds := e.Bounds()
-	textAreaX := bounds.X + e.lineNumWidth
+	textAreaX := bounds.X + e.lineNumWidth + e.blameWidth
 
 	// Calculate line from screen Y
 	row := screenY - bounds.Y

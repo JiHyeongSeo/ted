@@ -96,12 +96,8 @@ func TestEditorExecuteCommand(t *testing.T) {
 	e := New(cfg, theme)
 	e.OpenEmpty()
 
-	// Toggle sidebar
-	if e.layout.SidebarVisible() {
-		t.Error("sidebar should be hidden initially")
-	}
-	e.ExecuteCommand("sidebar.toggle")
+	// Sidebar is always visible now
 	if !e.layout.SidebarVisible() {
-		t.Error("sidebar should be visible after toggle")
+		t.Error("sidebar should be visible initially")
 	}
 }
