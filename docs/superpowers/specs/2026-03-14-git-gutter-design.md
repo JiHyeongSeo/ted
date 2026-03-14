@@ -28,12 +28,14 @@ Editor (orchestrator)
         └── gitDeleted       ← NEW key
 ```
 
-## Component: `internal/git/diff.go`
+## Component: `internal/types/gutter.go`
 
-### Types
+### GutterMark Type (shared)
+
+`GutterMark` 타입은 `internal/types`에 정의하여 `git`과 `view` 패키지 간 순환 의존 방지:
 
 ```go
-package git
+package types
 
 type GutterMark int
 
@@ -43,6 +45,14 @@ const (
     MarkModified
     MarkDeleted
 )
+```
+
+## Component: `internal/git/diff.go`
+
+### Types
+
+```go
+package git
 
 type DiffTracker struct {
     repoRoot string
@@ -73,17 +83,27 @@ func (dt *DiffTracker) ComputeMarkers(filePath string) (map[int]GutterMark, erro
 @@ -oldStart,oldCount +newStart,newCount @@
 ```
 
-- `oldCount == 0` → 순수 추가: newStart ~ newStart+newCount-1 라인에 `MarkAdded`
-- `newCount == 0` → 순수 삭제: newStart 라인에 `MarkDeleted` (삭제 발생 직후 라인)
-- 그 외 → 수정: newStart ~ newStart+newCount-1 라인에 `MarkModified`
+**주의: git diff 출력의 라인 번호는 1-based. 마커 맵은 0-based. 변환 필요.**
+
+- `oldCount == 0` → 순수 추가: `(newStart-1)` ~ `(newStart-1+newCount-1)` 라인에 `MarkAdded`
+- `newCount == 0` → 순수 삭제: `max(0, newStart-1)` 라인에 `MarkDeleted`
+  - `newStart`가 0인 경우 (파일 맨 앞에서 삭제): 라인 0에 표시
+- 그 외 → 수정: `(newStart-1)` ~ `(newStart-1+newCount-1)` 라인에 `MarkModified`
+
+### Untracked 파일 감지
+
+`git diff`가 빈 출력을 반환하면 `git ls-files <file>`로 추적 여부 확인.
+추적되지 않은 파일이면 모든 라인을 `MarkAdded`로 표시.
+(diff가 비어있을 때만 ls-files를 호출하여 불필요한 서브프로세스 최소화)
 
 ### Edge Cases
 
-- **Untracked 파일** (git에 없는 파일): `git ls-files`로 체크 후 모든 라인 `MarkAdded`
 - **git repo가 아닌 경우**: DiffTracker가 nil → 호출 스킵, 빈 마커
+- **새 파일 (미저장, 경로 없음)**: `Buffer.Path() == ""` → 스킵, 빈 마커
 - **바이너리 파일**: git diff가 "Binary files differ" 출력 → 빈 맵 반환
-- **빈 diff**: 변경 없음 → 빈 맵 반환
+- **빈 diff (변경 없음)**: 빈 맵 반환
 - **hunk 카운트 생략**: `@@ -10 +10 @@` 형태 (count=1 생략) → 1로 처리
+- **파일 맨 앞 삭제**: `newStart == 0` → 라인 0에 MarkDeleted
 
 ## Component: EditorView 변경
 
@@ -106,13 +126,16 @@ func (ev *EditorView) SetGutterMarkers(markers map[int]GutterMark)
 ```
 for each visible line:
     marker := ev.gutterMarkers[lineIdx]
-    style := default lineNumber style
+    style := default lineNumber style (or lineNumberActive if current line)
     if marker != MarkNone:
-        style = style.Background(theme.UIColor("git{Added|Modified|Deleted}"))
+        // 기존 foreground 유지, 배경색만 교체
+        bgColor := theme.ResolveColor(theme.UI["gitAdded"|"gitModified"|"gitDeleted"])
+        style = style.Background(bgColor)
     draw line number with style
 ```
 
-gutter marker 배경은 `lineNumberActive` 스타일보다 우선.
+gutter marker 배경은 `lineNumberActive`의 배경보다 우선하되, **foreground(숫자 색상)는 기존 스타일 유지**.
+즉 활성 라인의 밝은 라인번호 + git 배경색 조합 가능.
 
 ## Component: Editor 연결
 
@@ -169,16 +192,21 @@ func (e *Editor) updateGutterMarkers() {
 | `gitDeleted` | `#4d1a1a` | 삭제 위치 — 어두운 빨간색 배경 |
 
 색상은 터미널 배경(#1e1e1e)에서 잘 보이면서 과하지 않은 어두운 톤.
-각 테마(Dark+, Monokai, Tango Dark)의 기본 색상에 추가.
+`DefaultTheme()`에 기본값 추가. JSON 테마 파일에 키가 없으면 이 기본값으로 폴백.
+
+## Design Note: `git diff HEAD` vs `git diff`
+
+`git diff HEAD`는 working tree vs HEAD 커밋을 비교한다. 즉 staged 상태를 무시하고 HEAD 대비 전체 변경을 보여준다. VSCode는 기본적으로 `git diff` (working tree vs index)를 사용하지만, 터미널 에디터에서는 staging area를 직접 관리하지 않으므로 HEAD 비교가 더 직관적이다.
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `internal/git/diff.go` | **NEW** — DiffTracker, GutterMark 타입, ComputeMarkers |
+| `internal/types/gutter.go` | **NEW** — GutterMark 타입 (순환 의존 방지를 위해 types에 배치) |
+| `internal/git/diff.go` | **NEW** — DiffTracker, ComputeMarkers |
 | `internal/view/editorview.go` | gutterMarkers 필드, SetGutterMarkers(), Render 수정 |
 | `internal/editor/editor.go` | diffTracker 필드, 초기화, updateGutterMarkers(), 저장/열기 시 호출 |
-| `internal/syntax/theme.go` | gitAdded/gitModified/gitDeleted 기본값 추가 |
+| `internal/syntax/theme.go` | gitAdded/gitModified/gitDeleted 기본값 추가 + 폴백 처리 |
 
 ## Not In Scope
 
