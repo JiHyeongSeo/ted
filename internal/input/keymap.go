@@ -143,12 +143,12 @@ func eventToKeyEvent(ev *tcell.EventKey) KeyEvent {
 	r := ev.Rune()
 	mod := ev.Modifiers()
 
-	// tcell normalizes Ctrl+letter to key codes (e.g., Ctrl+S -> Key=83).
-	// Normalize back to KeyRune + rune + ModCtrl to match our parsed format.
-	if mod&tcell.ModCtrl != 0 && key != tcell.KeyRune && r != 0 {
-		// Normalize rune to lowercase for consistent matching
-		r = unicode.ToLower(r)
-		return KeyEvent{Key: tcell.KeyRune, Rune: r, Mod: mod}
+	// tcell sends Ctrl+letter as KeyCtrlA..KeyCtrlZ (values 'A'..'Z').
+	// Some terminals also set ModCtrl, some don't. Rune may be set or 0.
+	// Normalize to KeyRune + lowercase rune + ModCtrl for consistent matching.
+	if key >= tcell.KeyCtrlA && key <= tcell.KeyCtrlZ {
+		r = rune(key-tcell.KeyCtrlA) + 'a'
+		return KeyEvent{Key: tcell.KeyRune, Rune: r, Mod: mod | tcell.ModCtrl}
 	}
 
 	// For Shift+letter combos, tcell sends uppercase rune.

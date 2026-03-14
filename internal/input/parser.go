@@ -43,9 +43,6 @@ func ParseKeyString(s string) KeyEvent {
 	// Single character
 	if len(keyPart) == 1 {
 		r := rune(keyPart[0])
-		if mod&tcell.ModCtrl != 0 {
-			return KeyEvent{Key: tcell.KeyRune, Rune: r, Mod: mod}
-		}
 		return KeyEvent{Key: tcell.KeyRune, Rune: r, Mod: mod}
 	}
 
