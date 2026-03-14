@@ -77,7 +77,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	}
 
 	e.layout.SetSidebarWidth(cfg.Sidebar.Width)
-	e.layout.SetSidebarVisible(cfg.Sidebar.Visible)
+	e.layout.SetSidebarVisible(true) // sidebar always visible
 	e.layout.SetPanelHeight(cfg.Panel.Height)
 	e.layout.SetPanelVisible(cfg.Panel.Visible)
 
@@ -766,8 +766,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+f", "search.find", "")
 	e.keymap.Bind("ctrl+r", "search.replace", "")
 	e.keymap.Bind("ctrl+p", "palette.open", "")
-	e.keymap.Bind("ctrl+b", "sidebar.toggle", "")
-	e.keymap.Bind("alt+left", "sidebar.focus", "")
+	e.keymap.Bind("ctrl+b", "sidebar.focusToggle", "")
 	e.keymap.Bind("ctrl+j", "panel.toggle", "")
 	e.keymap.Bind("alt+1", "tab.goto.1", "")
 	e.keymap.Bind("alt+2", "tab.goto.2", "")
@@ -856,24 +855,13 @@ func (e *Editor) ExecuteCommand(name string) error {
 			e.tabs.SetActive(idx)
 			e.syncViewToTab()
 		}
-	case "sidebar.toggle":
-		if !e.layout.SidebarVisible() {
-			// Hidden → show + focus sidebar
-			e.layout.SetSidebarVisible(true)
-			e.sidebarFocus = true
-		} else if e.sidebarFocus {
-			// Sidebar focused → hide sidebar + return to editor
-			e.layout.SetSidebarVisible(false)
+	case "sidebar.focusToggle":
+		e.panelFocus = false
+		if e.sidebarFocus {
 			e.sidebarFocus = false
 		} else {
-			// Sidebar visible, editor focused → focus sidebar
 			e.sidebarFocus = true
 		}
-	case "sidebar.focus":
-		if !e.layout.SidebarVisible() {
-			e.layout.SetSidebarVisible(true)
-		}
-		e.sidebarFocus = true
 	case "panel.toggle":
 		e.layout.SetPanelVisible(!e.layout.PanelVisible())
 		if !e.layout.PanelVisible() && e.projectSearchQuery != "" {
