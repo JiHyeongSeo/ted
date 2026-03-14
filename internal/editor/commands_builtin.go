@@ -145,4 +145,55 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 			return ctx.ExecuteCommand("lsp.hover")
 		},
 	})
+
+	// Git commands
+	reg.Register(&Command{
+		Name:        "git.status",
+		Description: "Show git status",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.status")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.stageFile",
+		Description: "Stage current file",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.stageFile")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.stageAll",
+		Description: "Stage all changes",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.stageAll")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.commit",
+		Description: "Commit staged changes",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.commit")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.push",
+		Description: "Push to remote",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.push")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.pull",
+		Description: "Pull from remote",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.pull")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.blame",
+		Description: "Toggle git blame",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.blame")
+		},
+	})
 }

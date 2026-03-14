@@ -974,6 +974,20 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.lspAutocomplete()
 	case "lsp.hover":
 		e.lspHover()
+	case "git.status":
+		e.gitShowStatus()
+	case "git.stageFile":
+		e.gitStageCurrentFile()
+	case "git.stageAll":
+		e.gitStageAll()
+	case "git.commit":
+		e.gitCommitPrompt()
+	case "git.push":
+		e.gitPush()
+	case "git.pull":
+		e.gitPull()
+	case "git.blame":
+		e.gitToggleBlame()
 	case "python.selectEnv":
 		e.showPythonEnvSelector()
 	case "editor.quit":
