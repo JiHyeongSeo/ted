@@ -1,9 +1,11 @@
 package editor
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -53,6 +55,7 @@ type Editor struct {
 	lastHoverCol  int
 	pythonEnv     *PythonEnv // current Python environment
 	diffTracker *git.DiffTracker
+	pasteActive bool
 }
 
 // New creates a new Editor instance.
@@ -256,6 +259,9 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	// Set cursor style to thin beam (bar)
 	screen.SetCursorStyle(tcell.CursorStyleSteadyBar)
 
+	// Enable bracketed paste so pasted text arrives as a single block
+	screen.EnablePaste()
+
 	// Only open empty buffer if no directory was opened via sidebar
 	if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
 		e.OpenEmpty()
@@ -292,7 +298,23 @@ func (e *Editor) Run(screen tcell.Screen) error {
 		case *tcell.EventResize:
 			screen.Sync()
 			e.render()
+		case *tcell.EventPaste:
+			if tev.Start() {
+				e.pasteActive = true
+			} else if tev.End() {
+				e.pasteActive = false
+				// WT sends garbled encoding via bracketed paste — ignore it.
+				// Read clipboard directly with proper UTF-8 encoding.
+				if text := e.readSystemClipboard(); text != "" && e.editorView != nil {
+					e.editorView.InsertText(text)
+					e.syncTabFromView()
+				}
+				e.render()
+			}
 		case *tcell.EventKey:
+			if e.pasteActive {
+				continue // discard garbled paste key events
+			}
 			e.handleKeyEvent(tev)
 			e.render()
 		case *tcell.EventMouse:
@@ -456,8 +478,12 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		sb := e.sidebar.Bounds()
 		if mx >= sb.X && mx < sb.X+sb.Width && my >= sb.Y && my < sb.Y+sb.Height {
 			e.sidebarFocus = true
-			// Calculate which entry was clicked
-			row := my - sb.Y + e.sidebar.ScrollY()
+			// Skip header row click
+			if my == sb.Y {
+				return
+			}
+			// Calculate which entry was clicked (subtract 1 for header)
+			row := my - sb.Y - 1 + e.sidebar.ScrollY()
 			e.sidebar.SelectIndex(row)
 			return
 		}
@@ -649,6 +675,50 @@ func (e *Editor) syncTabFromView() {
 	tab.ScrollY, tab.ScrollX = e.editorView.ScrollPosition()
 }
 
+func (e *Editor) copyToSystemClipboard(text string) {
+	// WSL: base64-encode UTF-8 text to avoid CP949 encoding issues with PowerShell stdin
+	b64 := base64.StdEncoding.EncodeToString([]byte(text))
+	psCmd := "[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + b64 + "')) | Set-Clipboard"
+	if err := exec.Command("powershell.exe", "-NoProfile", "-Command", psCmd).Run(); err == nil {
+		return
+	}
+	// Fallback: xclip / xsel (native UTF-8)
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"xclip", []string{"-selection", "clipboard"}},
+		{"xsel", []string{"--clipboard", "--input"}},
+	} {
+		cmd := exec.Command(c.name, c.args...)
+		cmd.Stdin = strings.NewReader(text)
+		if err := cmd.Run(); err == nil {
+			return
+		}
+	}
+}
+
+func (e *Editor) readSystemClipboard() string {
+	// WSL: read clipboard via PowerShell with explicit UTF-8 output encoding
+	psCmd := "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard"
+	if out, err := exec.Command("powershell.exe", "-NoProfile", "-Command", psCmd).Output(); err == nil {
+		return strings.TrimRight(string(out), "\r\n")
+	}
+	// Fallback: xclip / xsel
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"xclip", []string{"-selection", "clipboard", "-o"}},
+		{"xsel", []string{"--clipboard", "--output"}},
+	} {
+		if out, err := exec.Command(c.name, c.args...).Output(); err == nil {
+			return strings.TrimRight(string(out), "\r\n")
+		}
+	}
+	return ""
+}
+
 func (e *Editor) updateGutterMarkers() {
 	if e.diffTracker == nil || e.editorView == nil {
 		return
@@ -823,23 +893,39 @@ func (e *Editor) ExecuteCommand(name string) error {
 	case "edit.undo":
 		if tab := e.tabs.Active(); tab != nil {
 			tab.Buffer.Undo()
+			if e.editorView != nil {
+				e.editorView.ReparseHighlighting()
+			}
 		}
 	case "edit.redo":
 		if tab := e.tabs.Active(); tab != nil {
 			tab.Buffer.Redo()
+			if e.editorView != nil {
+				e.editorView.ReparseHighlighting()
+			}
 		}
 	case "edit.copy":
 		if e.editorView != nil {
 			e.editorView.Copy()
+			if cb := e.editorView.Clipboard(); cb != "" {
+				e.copyToSystemClipboard(cb)
+			}
 		}
 	case "edit.cut":
 		if e.editorView != nil {
 			e.editorView.Cut()
+			if cb := e.editorView.Clipboard(); cb != "" {
+				e.copyToSystemClipboard(cb)
+			}
 			e.syncTabFromView()
 		}
 	case "edit.paste":
 		if e.editorView != nil {
-			e.editorView.Paste()
+			if text := e.readSystemClipboard(); text != "" {
+				e.editorView.InsertText(text)
+			} else {
+				e.editorView.Paste() // fallback to internal clipboard
+			}
 			e.syncTabFromView()
 		}
 	case "tab.next":
