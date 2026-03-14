@@ -34,6 +34,7 @@ type EditorView struct {
 	cursorScreenY    int                   // last computed screen Y of cursor
 	clipboard        string                // internal clipboard
 	searchHighlights []SearchHighlight     // search match highlights
+	gutterMarkers    map[int]types.GutterMark
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -109,6 +110,24 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		if lineNum == e.cursor.Line {
 			lineNumStyle = e.theme.UIStyle("linenumber.active")
 		}
+		// Apply git gutter marker background
+		if mark, ok := e.gutterMarkers[lineNum]; ok && mark != types.MarkNone {
+			var colorKey string
+			switch mark {
+			case types.MarkAdded:
+				colorKey = "gitAdded"
+			case types.MarkModified:
+				colorKey = "gitModified"
+			case types.MarkDeleted:
+				colorKey = "gitDeleted"
+			}
+			if colorKey != "" {
+				if hex := e.theme.UI[colorKey]; hex != "" {
+					lineNumStyle = lineNumStyle.Background(e.theme.ResolveColor(hex))
+				}
+			}
+		}
+
 		lineNumStr := fmt.Sprintf("%*d", e.lineNumWidth-1, lineNum+1)
 		for i, ch := range lineNumStr {
 			screen.SetContent(bounds.X+i, bounds.Y+row, ch, nil, lineNumStyle)
@@ -941,6 +960,11 @@ func (e *EditorView) SetSearchHighlights(highlights []SearchHighlight) {
 // ClearSearchHighlights removes all search highlights.
 func (e *EditorView) ClearSearchHighlights() {
 	e.searchHighlights = nil
+}
+
+// SetGutterMarkers sets the git diff gutter markers.
+func (e *EditorView) SetGutterMarkers(markers map[int]types.GutterMark) {
+	e.gutterMarkers = markers
 }
 
 // HandleMouseClick moves the cursor to the screen position clicked.
