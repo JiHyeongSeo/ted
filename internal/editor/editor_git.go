@@ -358,29 +358,40 @@ func (e *Editor) graphGitFetch() {
 	}()
 }
 
-// graphGitPush pushes to remote from graph view with confirmation.
+// graphGitPush shows a branch list and pushes the selected branch to origin.
+// Current branch is marked with "* " prefix.
 func (e *Editor) graphGitPush() {
 	if e.diffTracker == nil {
 		return
 	}
-	branch := e.diffTracker.CurrentBranch()
-	e.inputBar.Show(fmt.Sprintf("Push %s to origin? (y/n): ", branch))
-	e.inputBar.SetOnSubmit(func(answer string) {
-		e.inputBar.Hide()
-		if strings.ToLower(strings.TrimSpace(answer)) != "y" {
-			e.statusBar.SetMessage("Push cancelled")
-			return
+	branches, err := e.diffTracker.ListBranches()
+	if err != nil || len(branches) == 0 {
+		e.statusBar.SetMessage("No branches found")
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+	displayed := make([]string, len(branches))
+	for i, b := range branches {
+		if b == current {
+			displayed[i] = "* " + b
+		} else {
+			displayed[i] = "  " + b
 		}
-		e.statusBar.SetMessage("Pushing...")
+	}
+	e.listPicker.Show("Push branch to origin", displayed)
+	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Push cancelled") })
+	e.listPicker.SetOnSelect(func(item string) {
+		branch := strings.TrimLeft(item, "* ")
+		e.statusBar.SetMessage(fmt.Sprintf("Pushing %s...", branch))
 		go func() {
-			out, err := e.diffTracker.Push()
+			out, err := e.diffTracker.PushBranch(branch)
 			if err != nil {
 				e.statusBar.SetMessage(err.Error())
 			} else if out != "" {
 				e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
 				e.graphRefresh()
 			} else {
-				e.statusBar.SetMessage("Pushed successfully")
+				e.statusBar.SetMessage(fmt.Sprintf("Pushed %s successfully", branch))
 				e.graphRefresh()
 			}
 			if e.screen != nil {
@@ -390,28 +401,26 @@ func (e *Editor) graphGitPush() {
 	})
 }
 
-// graphGitPushTags pushes all local tags to remote with confirmation.
+// graphGitPushTags shows a tag list and pushes the selected tag to origin.
 func (e *Editor) graphGitPushTags() {
 	if e.diffTracker == nil {
 		return
 	}
-	e.inputBar.Show("Push all tags to origin? (y/n): ")
-	e.inputBar.SetOnSubmit(func(answer string) {
-		e.inputBar.Hide()
-		if strings.ToLower(strings.TrimSpace(answer)) != "y" {
-			e.statusBar.SetMessage("Tag push cancelled")
-			return
-		}
-		e.statusBar.SetMessage("Pushing tags...")
+	tags, err := e.diffTracker.ListTags()
+	if err != nil || len(tags) == 0 {
+		e.statusBar.SetMessage("No tags found")
+		return
+	}
+	e.listPicker.Show("Push tag to origin", tags)
+	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Tag push cancelled") })
+	e.listPicker.SetOnSelect(func(tag string) {
+		e.statusBar.SetMessage(fmt.Sprintf("Pushing tag %s...", tag))
 		go func() {
-			out, err := e.diffTracker.PushTags()
+			_, err := e.diffTracker.PushTag(tag)
 			if err != nil {
 				e.statusBar.SetMessage(err.Error())
-			} else if out != "" {
-				e.statusBar.SetMessage("Tags pushed: " + strings.Split(out, "\n")[0])
-				e.graphRefresh()
 			} else {
-				e.statusBar.SetMessage("Tags pushed successfully")
+				e.statusBar.SetMessage(fmt.Sprintf("Pushed tag '%s' successfully", tag))
 				e.graphRefresh()
 			}
 			if e.screen != nil {
@@ -724,25 +733,36 @@ func (e *Editor) graphGitStash() {
 	}()
 }
 
-// graphGitStashPop pops the most recent stash.
+// graphGitStashPop shows stash list and pops the selected entry.
 func (e *Editor) graphGitStashPop() {
 	if e.diffTracker == nil {
 		return
 	}
-	e.statusBar.SetMessage("Popping stash...")
-	go func() {
-		out, err := e.diffTracker.StashPop()
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-		} else {
-			first := strings.Split(out, "\n")[0]
-			e.statusBar.SetMessage("Stash pop: " + first)
-			e.graphRefresh()
-		}
-		if e.screen != nil {
-			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
-		}
-	}()
+	stashes, err := e.diffTracker.ListStashes()
+	if err != nil || len(stashes) == 0 {
+		e.statusBar.SetMessage("No stashes found")
+		return
+	}
+	e.listPicker.Show("Pop stash", stashes)
+	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Stash pop cancelled") })
+	e.listPicker.SetOnSelect(func(item string) {
+		// item format: "stash@{N}: ..." — extract stash@{N}
+		ref := strings.SplitN(item, ":", 2)[0]
+		e.statusBar.SetMessage(fmt.Sprintf("Popping %s...", ref))
+		go func() {
+			out, err := e.diffTracker.StashPopAt(ref)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				first := strings.Split(out, "\n")[0]
+				e.statusBar.SetMessage("Stash pop: " + first)
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
 }
 
 // graphGitStageAll stages all changes from graph view.

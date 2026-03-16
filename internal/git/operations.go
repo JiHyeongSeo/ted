@@ -100,12 +100,22 @@ func (d *DiffTracker) Push() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// PushTags pushes all local tags to the remote.
-func (d *DiffTracker) PushTags() (string, error) {
-	cmd := exec.Command("git", "-C", d.repoRoot, "push", "--tags")
+// PushBranch pushes a specific branch to origin.
+func (d *DiffTracker) PushBranch(branch string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "push", "origin", branch)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("git push --tags: %s", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("git push origin %s: %s", branch, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// PushTag pushes a specific tag to origin.
+func (d *DiffTracker) PushTag(tag string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "push", "origin", tag)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git push origin %s: %s", tag, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -220,6 +230,33 @@ func (d *DiffTracker) StashPop() (string, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git stash pop: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListStashes returns stash entries as display strings (stash@{N}: message).
+func (d *DiffTracker) ListStashes() ([]string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "stash", "list")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git stash list: %w", err)
+	}
+	var stashes []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			stashes = append(stashes, line)
+		}
+	}
+	return stashes, nil
+}
+
+// StashPopAt pops a specific stash by index (e.g. stash@{2}).
+func (d *DiffTracker) StashPopAt(ref string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "stash", "pop", ref)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git stash pop %s: %s", ref, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
