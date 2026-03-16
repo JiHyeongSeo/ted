@@ -11,15 +11,15 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/buffer"
-	"github.com/seoji/ted/internal/config"
-	"github.com/seoji/ted/internal/git"
-	"github.com/seoji/ted/internal/input"
-	"github.com/seoji/ted/internal/lsp"
-	"github.com/seoji/ted/internal/search"
-	"github.com/seoji/ted/internal/syntax"
-	"github.com/seoji/ted/internal/types"
-	"github.com/seoji/ted/internal/view"
+	"github.com/JiHyeongSeo/ted/internal/buffer"
+	"github.com/JiHyeongSeo/ted/internal/config"
+	"github.com/JiHyeongSeo/ted/internal/git"
+	"github.com/JiHyeongSeo/ted/internal/input"
+	"github.com/JiHyeongSeo/ted/internal/lsp"
+	"github.com/JiHyeongSeo/ted/internal/search"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/view"
 )
 
 // graphFileUpdate carries refreshed file list data from goroutine to main thread.

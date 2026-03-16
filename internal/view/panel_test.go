@@ -3,7 +3,7 @@ package view
 import (
 	"testing"
 
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 func TestBottomPanelCreation(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/buffer"
-	"github.com/seoji/ted/internal/git"
-	"github.com/seoji/ted/internal/view"
+	"github.com/JiHyeongSeo/ted/internal/buffer"
+	"github.com/JiHyeongSeo/ted/internal/git"
+	"github.com/JiHyeongSeo/ted/internal/view"
 )
 
 // gitShowStatus shows git status in the bottom panel.

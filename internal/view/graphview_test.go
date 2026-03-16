@@ -3,8 +3,8 @@ package view
 import (
 	"testing"
 
-	"github.com/seoji/ted/internal/git"
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/git"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 func TestGraphViewSelection(t *testing.T) {

@@ -2,7 +2,7 @@ package view
 
 import (
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 // Component is the interface all view components must implement.

@@ -1,4 +1,4 @@
-module github.com/seoji/ted
+module github.com/JiHyeongSeo/ted
 
 go 1.25.6
 

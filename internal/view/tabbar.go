@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 // Tab represents a single tab in the tab bar.

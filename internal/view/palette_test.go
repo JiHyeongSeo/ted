@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 func TestPaletteShowHide(t *testing.T) {

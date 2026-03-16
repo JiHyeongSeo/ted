@@ -1,6 +1,6 @@
 package view
 
-import "github.com/seoji/ted/internal/types"
+import "github.com/JiHyeongSeo/ted/internal/types"
 
 // Layout calculates component bounds from total screen dimensions.
 type Layout struct {

@@ -5,8 +5,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/seoji/ted/internal/search"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/search"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 // SearchBar provides inline find/replace functionality.

@@ -3,7 +3,7 @@ package editor
 import (
 	"testing"
 
-	"github.com/seoji/ted/internal/buffer"
+	"github.com/JiHyeongSeo/ted/internal/buffer"
 )
 
 func TestSplitManagerDefault(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/syntax"
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 // StatusBar displays file information at the bottom of the editor.

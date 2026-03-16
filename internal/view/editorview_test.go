@@ -3,9 +3,9 @@ package view
 import (
 	"testing"
 
-	"github.com/seoji/ted/internal/buffer"
-	"github.com/seoji/ted/internal/syntax"
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/buffer"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 // TestNewEditorView tests EditorView creation.
