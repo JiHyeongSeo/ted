@@ -8,7 +8,7 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 - **Piece Table text buffer** — O(log n) insert/delete, efficient for large files
 - **Unlimited undo/redo** with save-point tracking (dirty indicator)
 - **UTF-8 support** with CJK/wide character rendering
-- **Mouse support** — click to position cursor, scroll wheel, tab clicks
+- **Mouse support** — click to position cursor, drag to select text, scroll wheel, tab clicks
 - **Clipboard** — Ctrl+C/X/V (system clipboard via OSC 52)
 - **Split editor** — vertical split for side-by-side editing
 
@@ -25,8 +25,8 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 - **Diagnostics** — inline error/warning display
 
 ### Navigation
-- **Command Palette** (Ctrl+P) — fuzzy file search, `>` for commands, `:` for go-to-line, `z` for directory jump
-- **Z directory jump** — quick project switching using zsh-z history (`~/.z`)
+- **Command Palette** (Ctrl+P) — fuzzy file search, `>` for commands, `:` for go-to-line, `z` for directory browser
+- **Directory browser** — `z ` in palette to browse the filesystem (no external tools required)
 - **In-file search** (Ctrl+F) with highlight, Enter/Shift+Enter to cycle matches
 - **Find and replace** (Ctrl+H) with replace all support
 - **Live project search** (Ctrl+Shift+F) — results update as you type (fzf-like)
@@ -46,7 +46,7 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 - **Fetch, commit, push, pull** — with confirmation dialogs, auto-fetch every 60s
 - **Merge & rebase** — branch picker with confirmation
 - **Tag, stash, stash pop** — all from graph view
-- **Side-by-side diff** — syntax-highlighted with colored backgrounds
+- **Side-by-side diff** — syntax-highlighted with colored backgrounds; drag to select left or right side independently
 - **Git blame** — inline display with author, date, summary; click hash to jump to graph
 - **Gutter diff markers** — added/modified/deleted line indicators
 
@@ -92,6 +92,99 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 | r | Rebase |
 | s | Stash |
 | S | Stash pop |
+
+**Directory Browser** (`z ` in command palette):
+
+| Key | Action |
+|-----|--------|
+| Tab / → | Drill into selected directory |
+| Enter | Open selected directory |
+| Backspace | Go up one path segment |
+| Type `/` or `~/` | Navigate by absolute or home-relative path |
+
+## Configuration
+
+### Settings
+
+User-wide settings live in `~/.config/ted/settings.json` (respects `$XDG_CONFIG_HOME`).
+Project-local settings live in `.ted/settings.json` at the project root — these override user settings.
+
+```jsonc
+{
+  "editor": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineNumbers": true,
+    "wordWrap": false
+  },
+  "sidebar": {
+    "width": 30,
+    "visible": false
+  },
+  "lsp": {
+    "go": {
+      "command": "gopls",
+      "args": ["serve"],
+      "rootMarkers": ["go.mod"]
+    }
+  }
+}
+```
+
+### Keybindings
+
+User-wide keybindings live in `~/.config/ted/keybindings.json`.
+Project-local keybindings live in `.ted/keybindings.json` — these are loaded on top of (and override) user keybindings.
+
+```jsonc
+{
+  "keybindings": [
+    { "key": "ctrl+s",       "command": "file.save" },
+    { "key": "ctrl+shift+g", "command": "git.graph" },
+    { "key": "ctrl+k ctrl+i","command": "lsp.hover" },
+    { "key": "alt+f",        "command": "search.findInFiles" }
+  ]
+}
+```
+
+**Key string format:** modifiers joined with `+`, then the key name. Chord bindings use a space between strokes.
+
+| Modifier | Example |
+|----------|---------|
+| `ctrl+`  | `ctrl+s` |
+| `alt+`   | `alt+f` |
+| `shift+` | `shift+f12` |
+| Chord    | `ctrl+k ctrl+i` |
+
+Special key names: `enter`, `esc`, `tab`, `backspace`, `delete`, `insert`, `home`, `end`, `pgup`, `pgdn`, `up`, `down`, `left`, `right`, `space`, `f1`–`f12`.
+
+**Available commands:**
+
+| Command | Default key |
+|---------|-------------|
+| `file.save` | Ctrl+S |
+| `file.open` | Ctrl+O |
+| `file.close` | Ctrl+W |
+| `editor.quit` | Ctrl+Q |
+| `edit.undo` | Ctrl+Z |
+| `edit.redo` | Ctrl+Y |
+| `edit.copy` | Ctrl+C |
+| `edit.cut` | Ctrl+X |
+| `edit.paste` | Ctrl+V |
+| `search.find` | Ctrl+F |
+| `search.replace` | Ctrl+H |
+| `search.findInFiles` | Ctrl+Shift+F |
+| `palette.open` | Ctrl+P |
+| `editor.goToLine` | Ctrl+G |
+| `sidebar.focusToggle` | Ctrl+B |
+| `panel.toggle` | Ctrl+J |
+| `lsp.goToDefinition` | F12 |
+| `lsp.findReferences` | Shift+F12 |
+| `lsp.autocomplete` | Ctrl+Space |
+| `lsp.hover` | Ctrl+K Ctrl+I |
+| `git.graph` | Ctrl+Shift+G |
+| `python.selectEnv` | Ctrl+Shift+P |
+| `tab.goto.1` – `tab.goto.9` | Alt+1 – Alt+9 |
 
 ## Installation
 

@@ -40,6 +40,7 @@ type DiffView struct {
 	// Selection state for copy
 	selStart    int // line index of selection start (-1 = none)
 	selEnd      int // line index of selection end
+	selSide     int // 1 = left, 2 = right
 	selecting   bool
 	onCopy      func(text string)
 }
@@ -68,7 +69,7 @@ func (dv *DiffView) SetOnCopy(fn func(text string)) {
 	dv.onCopy = fn
 }
 
-// SelectedText returns the selected diff text (right side preferred, falls back to left).
+// SelectedText returns the selected diff text for the side the user dragged on.
 func (dv *DiffView) SelectedText() string {
 	if dv.selStart < 0 {
 		return ""
@@ -80,10 +81,16 @@ func (dv *DiffView) SelectedText() string {
 	var lines []string
 	for i := start; i <= end && i < len(dv.lines); i++ {
 		dl := dv.lines[i]
-		if dl.RightText != "" {
-			lines = append(lines, dl.RightText)
-		} else if dl.LeftText != "" {
-			lines = append(lines, dl.LeftText)
+		if dv.selSide == 1 {
+			if dl.LeftText != "" {
+				lines = append(lines, dl.LeftText)
+			}
+		} else {
+			if dl.RightText != "" {
+				lines = append(lines, dl.RightText)
+			} else if dl.LeftText != "" {
+				lines = append(lines, dl.LeftText)
+			}
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -186,8 +193,8 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 		}
 
 		// Draw both sides with syntax highlighting + diff background
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle, leftHasDiff, leftBg, isSelected)
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle, rightHasDiff, rightBg, isSelected)
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle, leftHasDiff, leftBg, isSelected && dv.selSide == 1)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle, rightHasDiff, rightBg, isSelected && dv.selSide == 2)
 	}
 }
 
@@ -348,7 +355,10 @@ func (dv *DiffView) handleMouse(ev *tcell.EventMouse) bool {
 		maxScroll = 0
 	}
 
-	// Mouse click — start selection
+	// Mouse click/drag — start or extend selection
+	halfWidth := (bounds.Width - 1) / 2
+	sepX := bounds.X + halfWidth
+
 	if ev.Buttons()&tcell.Button1 != 0 {
 		row := my - bounds.Y - 1 // -1 for header
 		if row >= 0 {
@@ -358,6 +368,11 @@ func (dv *DiffView) handleMouse(ev *tcell.EventMouse) bool {
 					dv.selecting = true
 					dv.selStart = lineIdx
 					dv.selEnd = lineIdx
+					if mx < sepX {
+						dv.selSide = 1 // left
+					} else {
+						dv.selSide = 2 // right
+					}
 				} else {
 					dv.selEnd = lineIdx
 				}

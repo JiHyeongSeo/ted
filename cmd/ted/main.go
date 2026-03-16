@@ -39,7 +39,7 @@ func main() {
 	}
 	defer screen.Fini()
 
-	screen.EnableMouse()
+	screen.EnableMouse(tcell.MouseDragEvents)
 	screen.SetStyle(tcell.StyleDefault.
 		Background(theme.ResolveColor(theme.UI["background"])).
 		Foreground(theme.ResolveColor(theme.UI["foreground"])))

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1147,9 +1146,6 @@ func (e *Editor) updatePaletteItems() {
 
 	// File items - scan project root
 	e.updatePaletteFileItems()
-
-	// Z directory items - load from ~/.z
-	e.loadZDirItems()
 }
 
 func (e *Editor) updatePaletteFileItems() {
@@ -1208,64 +1204,6 @@ func (e *Editor) updatePaletteFileItems() {
 	e.palette.SetFileItems(fileItems)
 }
 
-// loadZDirItems loads directory history from ~/.z (zsh-z/zoxide format).
-func (e *Editor) loadZDirItems() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	data, err := os.ReadFile(filepath.Join(home, ".z"))
-	if err != nil {
-		return
-	}
-
-	type zEntry struct {
-		path  string
-		rank  float64
-	}
-
-	var entries []zEntry
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Format: path|rank|timestamp
-		parts := strings.Split(line, "|")
-		if len(parts) < 2 {
-			continue
-		}
-		dir := parts[0]
-		// Only include existing directories
-		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		rank := 0.0
-		fmt.Sscanf(parts[1], "%f", &rank)
-		entries = append(entries, zEntry{path: dir, rank: rank})
-	}
-
-	// Sort by rank descending (most used first)
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].rank > entries[j].rank
-	})
-
-	items := make([]view.PaletteItem, len(entries))
-	for i, e := range entries {
-		// Show shortened path with ~ for home dir
-		label := e.path
-		if strings.HasPrefix(label, home) {
-			label = "~" + label[len(home):]
-		}
-		items[i] = view.PaletteItem{
-			Label:    label,
-			FilePath: e.path,
-		}
-	}
-	e.palette.SetZDirItems(items)
-}
-
 // LoadKeybindings loads key bindings from the default keybindings config.
 func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+s", "file.save", "")
@@ -1300,11 +1238,14 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
 	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
 	e.keymap.Bind("ctrl+shift+g", "git.graph", "")
-	// Load additional keybindings from JSON config file
+	// Load additional keybindings from JSON config file.
+	// Lookup order: user config (~/.config/ted/keybindings.json) then
+	// project-local (.ted/keybindings.json), so project settings win.
 	configDir := config.DefaultUserConfigDir()
-	// Try project-local config first, then user config
-	for _, dir := range []string{".", configDir} {
-		path := filepath.Join(dir, "configs", "keybindings.json")
+	for _, path := range []string{
+		filepath.Join(configDir, "keybindings.json"),
+		filepath.Join(".ted", "keybindings.json"),
+	} {
 		if _, err := os.Stat(path); err == nil {
 			e.keymap.LoadFromFile(path)
 		}

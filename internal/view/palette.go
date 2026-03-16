@@ -1,6 +1,8 @@
 package view
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -39,7 +41,6 @@ type CommandPalette struct {
 	commandItems []PaletteItem
 	fileItems    []PaletteItem
 	bufferItems  []PaletteItem
-	zDirItems    []PaletteItem
 	filtered     []PaletteItem
 	query        string
 	mode         PaletteMode
@@ -101,12 +102,7 @@ func (p *CommandPalette) SetOnGoToLine(fn func(line int)) {
 	p.onGoToLine = fn
 }
 
-// SetZDirItems sets the available z directory items.
-func (p *CommandPalette) SetZDirItems(items []PaletteItem) {
-	p.zDirItems = items
-}
-
-// SetOnDirOpen sets the callback when a z directory is selected.
+// SetOnDirOpen sets the callback when a directory is selected.
 func (p *CommandPalette) SetOnDirOpen(fn func(path string)) {
 	p.onDirOpen = fn
 }
@@ -264,7 +260,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 		case PaletteModeGoLine:
 			hint = "Type line number..."
 		case PaletteModeZDir:
-			hint = "Type to search recent directories..."
+			hint = "Browse dirs (Tab/→ drill in, Enter open)  e.g. ~/projects/"
 		default:
 			hint = "Search files... (> commands, : line, # buffers, z dirs)"
 		}
@@ -387,6 +383,11 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 			p.selectedIdx++
 		}
 		return true
+	case tcell.KeyTab, tcell.KeyRight:
+		if p.mode == PaletteModeZDir {
+			p.drillIntoSelected()
+			return true
+		}
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(p.query) > 0 {
 			// Remove last rune (not byte) to handle multi-byte chars like Korean
@@ -478,9 +479,7 @@ func (p *CommandPalette) filterItems() {
 		searchQuery = strings.TrimSpace(searchQuery)
 		p.fuzzyFilter(p.bufferItems, searchQuery)
 	case PaletteModeZDir:
-		searchQuery := strings.TrimPrefix(p.query, "z ")
-		searchQuery = strings.TrimSpace(searchQuery)
-		p.fuzzyFilter(p.zDirItems, searchQuery)
+		p.loadDirItems()
 	case PaletteModeGoLine:
 		p.filtered = nil
 	default: // file mode
@@ -530,6 +529,112 @@ func (p *CommandPalette) fuzzyFilter(items []PaletteItem, query string) {
 			p.filtered = append(p.filtered, item)
 		}
 	}
+}
+
+// loadDirItems dynamically reads the filesystem based on the current query.
+func (p *CommandPalette) loadDirItems() {
+	home, _ := os.UserHomeDir()
+
+	// Extract the path portion after "z " (or "z")
+	var query string
+	if p.query == "z" {
+		query = ""
+	} else {
+		query = strings.TrimPrefix(p.query, "z ")
+	}
+
+	browseDir, filterStr := parseDirQuery(query, home)
+
+	entries, err := os.ReadDir(browseDir)
+	if err != nil {
+		p.filtered = nil
+		return
+	}
+
+	var items []PaletteItem
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// Skip hidden dirs unless the filter explicitly targets them
+		if strings.HasPrefix(name, ".") && !strings.HasPrefix(filterStr, ".") {
+			continue
+		}
+		fullPath := filepath.Join(browseDir, name)
+		// Display label as name/, description as shortened full path
+		label := name + "/"
+		desc := fullPath
+		if strings.HasPrefix(desc, home) {
+			desc = "~" + desc[len(home):]
+		}
+		items = append(items, PaletteItem{
+			Label:       label,
+			FilePath:    fullPath,
+			Description: desc,
+		})
+	}
+
+	if filterStr != "" {
+		p.fuzzyFilter(items, filterStr)
+	} else {
+		p.filtered = items
+	}
+}
+
+// parseDirQuery splits a raw query string into a directory to list and a filter string.
+func parseDirQuery(query, home string) (browseDir, filterStr string) {
+	if query == "" {
+		return home, ""
+	}
+
+	// Expand leading ~
+	expanded := query
+	if expanded == "~" {
+		expanded = home
+	} else if strings.HasPrefix(expanded, "~/") {
+		expanded = filepath.Join(home, expanded[2:])
+	}
+
+	// If the expanded path is an existing directory, list it directly
+	if info, err := os.Stat(expanded); err == nil && info.IsDir() {
+		return expanded, ""
+	}
+
+	// Otherwise treat parent as the dir to list, basename as the filter
+	dir := filepath.Dir(expanded)
+	base := filepath.Base(expanded)
+	if base == "." {
+		base = ""
+	}
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return dir, base
+	}
+
+	// Fallback: browse home and filter by the full query
+	return home, query
+}
+
+// drillIntoSelected updates the query to browse the selected directory's children.
+func (p *CommandPalette) drillIntoSelected() {
+	if p.mode != PaletteModeZDir {
+		return
+	}
+	if p.selectedIdx < 0 || p.selectedIdx >= len(p.filtered) {
+		return
+	}
+	item := p.filtered[p.selectedIdx]
+	if item.FilePath == "" {
+		return
+	}
+	home, _ := os.UserHomeDir()
+	newPath := item.FilePath
+	if strings.HasPrefix(newPath, home) {
+		newPath = "~" + newPath[len(home):]
+	}
+	p.query = "z " + newPath + "/"
+	p.filterItems()
+	p.selectedIdx = 0
 }
 
 func makePositionSet(positions []int) map[int]bool {
