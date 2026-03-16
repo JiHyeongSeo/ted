@@ -145,15 +145,16 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 			rightStyle = bgStyle
 		}
 
-		// Draw left side
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle)
+		// Draw left side (syntax highlighting only on equal lines)
+		isEqual := dl.Kind == DiffEqual
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle, isEqual)
 
 		// Draw right side
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle, isEqual)
 	}
 }
 
-func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style) {
+func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style, syntaxHL bool) {
 	// Clear the side
 	for x := startX; x < startX+lineNumW+textW; x++ {
 		screen.SetContent(x, y, ' ', nil, textStyle)
@@ -176,9 +177,9 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		}
 	}
 
-	// Get syntax tokens for this line
+	// Get syntax tokens for this line (only for unchanged lines)
 	var tokens []syntax.Token
-	if dv.highlighter != nil && text != "" {
+	if syntaxHL && dv.highlighter != nil && text != "" {
 		tokens = dv.highlighter.HighlightLine(text)
 	}
 
