@@ -51,43 +51,78 @@ func (ib *InputBar) SetOnCancel(fn func()) {
 	ib.onCancel = fn
 }
 
-// SetBoundsFromScreen positions the input bar centered near the top.
+// SetBoundsFromScreen positions the input bar centered on screen.
 func (ib *InputBar) SetBoundsFromScreen(width, height int) {
-	barWidth := width * 2 / 5
-	if barWidth < 30 {
-		barWidth = 30
+	barWidth := width / 2
+	if barWidth < 40 {
+		barWidth = 40
 	}
 	if barWidth > width-4 {
 		barWidth = width - 4
 	}
 	startX := (width - barWidth) / 2
-	ib.SetBounds(types.Rect{X: startX, Y: 2, Width: barWidth, Height: 1})
+	startY := height / 3
+	ib.SetBounds(types.Rect{X: startX, Y: startY, Width: barWidth, Height: 3})
 }
 
-// Render draws the input bar.
+// Render draws the input bar as a centered dialog.
 func (ib *InputBar) Render(screen tcell.Screen) {
 	if !ib.visible {
 		return
 	}
 	bounds := ib.Bounds()
-	style := ib.theme.UIStyle("panel")
+	bgStyle := ib.theme.UIStyle("panel")
+	borderStyle := bgStyle.Foreground(tcell.ColorSteelBlue)
+	promptStyle := bgStyle.Foreground(tcell.ColorGray)
+	inputStyle := bgStyle.Foreground(tcell.ColorWhite)
 
-	// Clear row
-	for x := bounds.X; x < bounds.X+bounds.Width; x++ {
-		screen.SetContent(x, bounds.Y, ' ', nil, style)
+	// Draw 3-line dialog: top border, input, bottom border
+	// Top border
+	screen.SetContent(bounds.X, bounds.Y, '╭', nil, borderStyle)
+	for x := bounds.X + 1; x < bounds.X+bounds.Width-1; x++ {
+		screen.SetContent(x, bounds.Y, '─', nil, borderStyle)
 	}
+	screen.SetContent(bounds.X+bounds.Width-1, bounds.Y, '╮', nil, borderStyle)
 
-	text := []rune(ib.prompt)
-	text = append(text, ib.value...)
-	x := bounds.X + 1
-	for _, ch := range text {
+	// Middle: input line
+	inputY := bounds.Y + 1
+	screen.SetContent(bounds.X, inputY, '│', nil, borderStyle)
+	for x := bounds.X + 1; x < bounds.X+bounds.Width-1; x++ {
+		screen.SetContent(x, inputY, ' ', nil, bgStyle)
+	}
+	screen.SetContent(bounds.X+bounds.Width-1, inputY, '│', nil, borderStyle)
+
+	// Draw prompt
+	x := bounds.X + 2
+	for _, ch := range ib.prompt {
 		w := runewidth.RuneWidth(ch)
-		if x+w > bounds.X+bounds.Width-1 {
+		if x+w > bounds.X+bounds.Width-2 {
 			break
 		}
-		screen.SetContent(x, bounds.Y, ch, nil, style)
+		screen.SetContent(x, inputY, ch, nil, promptStyle)
 		x += w
 	}
+	// Draw value
+	for _, ch := range ib.value {
+		w := runewidth.RuneWidth(ch)
+		if x+w > bounds.X+bounds.Width-2 {
+			break
+		}
+		screen.SetContent(x, inputY, ch, nil, inputStyle)
+		x += w
+	}
+	// Show cursor
+	if x < bounds.X+bounds.Width-2 {
+		screen.SetContent(x, inputY, ' ', nil, inputStyle.Reverse(true))
+	}
+
+	// Bottom border
+	bottomY := bounds.Y + 2
+	screen.SetContent(bounds.X, bottomY, '╰', nil, borderStyle)
+	for x := bounds.X + 1; x < bounds.X+bounds.Width-1; x++ {
+		screen.SetContent(x, bottomY, '─', nil, borderStyle)
+	}
+	screen.SetContent(bounds.X+bounds.Width-1, bottomY, '╯', nil, borderStyle)
 }
 
 // HandleEvent processes key events.

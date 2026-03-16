@@ -484,6 +484,41 @@ func (e *Editor) graphGitStageAll() {
 	e.graphRefresh()
 }
 
+// graphGitStageFile stages the currently selected file in the commit detail view.
+func (e *Editor) graphGitStageFile() {
+	if e.diffTracker == nil || e.commitDetailView == nil {
+		return
+	}
+	fileLine := e.commitDetailView.SelectedFile()
+	if fileLine == "" {
+		return
+	}
+	// Parse "M\tpath" format
+	parts := strings.SplitN(fileLine, "\t", 2)
+	if len(parts) < 2 {
+		return
+	}
+	filePath := parts[1]
+
+	if err := e.diffTracker.StageFile(filepath.Join(e.diffTracker.RepoRoot(), filePath)); err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	e.statusBar.SetMessage(fmt.Sprintf("Staged: %s", filePath))
+	// Refresh the uncommitted file list
+	if e.graphView != nil {
+		commit := e.graphView.SelectedCommit()
+		if commit != nil && commit.Hash == "uncommitted" {
+			entries, _ := e.diffTracker.Status()
+			var files []string
+			for _, entry := range entries {
+				files = append(files, entry.Status+"\t"+entry.Path)
+			}
+			e.commitDetailView.SetCommit(commit, files)
+		}
+	}
+}
+
 // gitToggleBlame toggles git blame display.
 func (e *Editor) gitToggleBlame() {
 	if e.editorView == nil {
