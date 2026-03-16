@@ -1147,6 +1147,45 @@ func (e *EditorView) SetOnBlameClick(fn func(hash string)) {
 	e.onBlameClick = fn
 }
 
+// screenToPosition converts screen coordinates to a buffer position.
+func (e *EditorView) screenToPosition(screenX, screenY int) types.Position {
+	bounds := e.Bounds()
+	textAreaX := bounds.X + e.lineNumWidth + e.blameWidth
+
+	row := screenY - bounds.Y
+	line := e.scrollY + row
+	if line < 0 {
+		line = 0
+	}
+	if line >= e.buf.LineCount() {
+		line = e.buf.LineCount() - 1
+	}
+
+	clickDispCol := (screenX - textAreaX) + e.scrollX
+	if clickDispCol < 0 {
+		clickDispCol = 0
+	}
+
+	lineRunes := []rune(e.buf.Line(line))
+	dispCol := 0
+	runeCol := 0
+	for i, ch := range lineRunes {
+		var w int
+		if ch == '\t' {
+			w = tabWidth - (dispCol % tabWidth)
+		} else {
+			w = runewidth.RuneWidth(ch)
+		}
+		if dispCol+w > clickDispCol {
+			runeCol = i
+			break
+		}
+		dispCol += w
+		runeCol = i + 1
+	}
+	return types.Position{Line: line, Col: runeCol}
+}
+
 // HandleMouseClick moves the cursor to the screen position clicked.
 func (e *EditorView) HandleMouseClick(screenX, screenY int) {
 	bounds := e.Bounds()
@@ -1170,37 +1209,22 @@ func (e *EditorView) HandleMouseClick(screenX, screenY int) {
 			}
 		}
 	}
-	if line >= e.buf.LineCount() {
-		line = e.buf.LineCount() - 1
-	}
 
-	// Calculate rune column from screen X
-	clickDispCol := (screenX - textAreaX) + e.scrollX
-	if clickDispCol < 0 {
-		clickDispCol = 0
-	}
-
-	// Walk through the line to find the rune at this display column
-	lineRunes := []rune(e.buf.Line(line))
-	dispCol := 0
-	runeCol := 0
-	for i, ch := range lineRunes {
-		var w int
-		if ch == '\t' {
-			w = tabWidth - (dispCol % tabWidth)
-		} else {
-			w = runewidth.RuneWidth(ch)
-		}
-		if dispCol+w > clickDispCol {
-			runeCol = i
-			break
-		}
-		dispCol += w
-		runeCol = i + 1
-	}
-
+	pos := e.screenToPosition(screenX, screenY)
 	e.ClearSelection()
-	e.cursor = types.Position{Line: line, Col: runeCol}
+	e.cursor = pos
+	e.clampCursorCol()
+	e.ensureCursorVisible()
+}
+
+// HandleMouseDrag extends selection to the screen position during drag.
+func (e *EditorView) HandleMouseDrag(screenX, screenY int) {
+	pos := e.screenToPosition(screenX, screenY)
+	if e.selection == nil {
+		e.StartSelection()
+	}
+	e.cursor = pos
+	e.selection.End = pos
 	e.clampCursorCol()
 	e.ensureCursorVisible()
 }

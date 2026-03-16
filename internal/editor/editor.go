@@ -72,6 +72,7 @@ type Editor struct {
 	graphFileUpdates   chan graphFileUpdate
 	listPicker         *view.ListPicker
 	pasteActive           bool
+	mouseDown             bool // tracking mouse button1 press for drag selection
 }
 
 // New creates a new Editor instance.
@@ -688,6 +689,11 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 	mx, my := ev.Position()
 	btn := ev.Buttons()
 
+	// Reset mouseDown when button is released
+	if btn == tcell.ButtonNone {
+		e.mouseDown = false
+	}
+
 	if btn == tcell.Button1 {
 		// Dismiss input bar on click outside it
 		if e.inputBar.IsVisible() {
@@ -767,7 +773,14 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 				e.sidebarFocus = false
 				e.panelFocus = false
 				e.tooltip.Hide()
-				e.editorView.HandleMouseClick(mx, my)
+				if e.mouseDown {
+					// Drag — extend selection
+					e.editorView.HandleMouseDrag(mx, my)
+				} else {
+					// First click
+					e.mouseDown = true
+					e.editorView.HandleMouseClick(mx, my)
+				}
 				e.syncTabFromView()
 			} else if btn == tcell.WheelUp {
 				e.tooltip.Hide()

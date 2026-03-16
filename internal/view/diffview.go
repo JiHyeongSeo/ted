@@ -37,6 +37,11 @@ type DiffView struct {
 	lines       []DiffLine
 	scrollY     int
 	title       string // e.g. filename
+	// Selection state for copy
+	selStart    int // line index of selection start (-1 = none)
+	selEnd      int // line index of selection end
+	selecting   bool
+	onCopy      func(text string)
 }
 
 // NewDiffView creates a DiffView from old and new text.
@@ -54,7 +59,34 @@ func NewDiffView(theme *syntax.Theme, oldText, newText, title, filePath string) 
 		dv.highlighter = syntax.NewHighlighter(theme, lang)
 	}
 
+	dv.selStart = -1
 	return dv
+}
+
+// SetOnCopy sets the callback for copying selected text.
+func (dv *DiffView) SetOnCopy(fn func(text string)) {
+	dv.onCopy = fn
+}
+
+// SelectedText returns the selected diff text (right side preferred, falls back to left).
+func (dv *DiffView) SelectedText() string {
+	if dv.selStart < 0 {
+		return ""
+	}
+	start, end := dv.selStart, dv.selEnd
+	if start > end {
+		start, end = end, start
+	}
+	var lines []string
+	for i := start; i <= end && i < len(dv.lines); i++ {
+		dl := dv.lines[i]
+		if dl.RightText != "" {
+			lines = append(lines, dl.RightText)
+		} else if dl.LeftText != "" {
+			lines = append(lines, dl.LeftText)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // LineCount returns the total number of display lines.
@@ -143,17 +175,30 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 			rightHasDiff = true
 		}
 
+		// Check if this line is selected
+		isSelected := false
+		if dv.selStart >= 0 {
+			sStart, sEnd := dv.selStart, dv.selEnd
+			if sStart > sEnd {
+				sStart, sEnd = sEnd, sStart
+			}
+			isSelected = idx >= sStart && idx <= sEnd
+		}
+
 		// Draw both sides with syntax highlighting + diff background
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle, leftHasDiff, leftBg)
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle, rightHasDiff, rightBg)
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle, leftHasDiff, leftBg, isSelected)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle, rightHasDiff, rightBg, isSelected)
 	}
 }
 
-func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, baseStyle, numStyle tcell.Style, hasDiff bool, diffBg tcell.Color) {
+func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, baseStyle, numStyle tcell.Style, hasDiff bool, diffBg tcell.Color, isSelected bool) {
 	// Determine the row background
 	rowStyle := baseStyle
 	if hasDiff {
 		rowStyle = baseStyle.Background(diffBg)
+	}
+	if isSelected {
+		rowStyle = rowStyle.Reverse(true)
 	}
 
 	// Clear the side
@@ -249,6 +294,14 @@ func (dv *DiffView) handleKey(ev *tcell.EventKey) bool {
 		maxScroll = 0
 	}
 
+	// Ctrl+C to copy selection
+	if ev.Key() == tcell.KeyRune && ev.Modifiers()&tcell.ModCtrl != 0 && ev.Rune() == 'c' {
+		if dv.selStart >= 0 && dv.onCopy != nil {
+			dv.onCopy(dv.SelectedText())
+		}
+		return true
+	}
+
 	switch ev.Key() {
 	case tcell.KeyUp:
 		if dv.scrollY > 0 {
@@ -293,6 +346,29 @@ func (dv *DiffView) handleMouse(ev *tcell.EventMouse) bool {
 	maxScroll := len(dv.lines) - contentHeight
 	if maxScroll < 0 {
 		maxScroll = 0
+	}
+
+	// Mouse click — start selection
+	if ev.Buttons()&tcell.Button1 != 0 {
+		row := my - bounds.Y - 1 // -1 for header
+		if row >= 0 {
+			lineIdx := dv.scrollY + row
+			if lineIdx < len(dv.lines) {
+				if !dv.selecting {
+					dv.selecting = true
+					dv.selStart = lineIdx
+					dv.selEnd = lineIdx
+				} else {
+					dv.selEnd = lineIdx
+				}
+			}
+		}
+		return true
+	}
+
+	// Button released — end drag
+	if ev.Buttons() == tcell.ButtonNone {
+		dv.selecting = false
 	}
 
 	if ev.Buttons()&tcell.WheelUp != 0 {

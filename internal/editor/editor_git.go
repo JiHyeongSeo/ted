@@ -265,6 +265,10 @@ func (e *Editor) gitOpenGraph() {
 
 		title := fmt.Sprintf("%s (%s)", filepath.Base(filePath), commit.ShortHash)
 		e.graphDiffView = view.NewDiffView(e.theme, oldText, newText, title, filePath)
+		e.graphDiffView.SetOnCopy(func(text string) {
+			e.copyToSystemClipboard(text)
+			e.statusBar.SetMessage("Copied to clipboard")
+		})
 		e.graphFocus = 2
 		e.statusBar.SetMessage(fmt.Sprintf("Diff: %s  (Esc to go back)", filePath))
 	})
