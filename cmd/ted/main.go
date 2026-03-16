@@ -10,7 +10,14 @@ import (
 	"github.com/seoji/ted/internal/syntax"
 )
 
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println("ted " + version)
+		return
+	}
+
 	// Load configuration
 	cfg, err := config.Load(config.DefaultUserConfigDir(), ".")
 	if err != nil {

@@ -119,6 +119,9 @@ type Sidebar struct {
 	selectedIdx int
 	scrollY     int
 	onFileOpen  func(path string)
+	onNewFile   func(parentDir string) // Ctrl+N: create new file/dir
+	onDelete    func(path string)      // r: delete
+	onRename    func(path string)      // F2: rename
 }
 
 // NewSidebar creates a new Sidebar.
@@ -138,6 +141,44 @@ func (s *Sidebar) SetRoot(root string) {
 // SetOnFileOpen sets the callback for when a file is double-clicked or entered.
 func (s *Sidebar) SetOnFileOpen(fn func(path string)) {
 	s.onFileOpen = fn
+}
+
+// SetOnNewFile sets the callback for creating a new file/directory.
+func (s *Sidebar) SetOnNewFile(fn func(parentDir string)) {
+	s.onNewFile = fn
+}
+
+// SetOnDelete sets the callback for deleting a file/directory.
+func (s *Sidebar) SetOnDelete(fn func(path string)) {
+	s.onDelete = fn
+}
+
+// SetOnRename sets the callback for renaming a file/directory.
+func (s *Sidebar) SetOnRename(fn func(path string)) {
+	s.onRename = fn
+}
+
+// SelectedEntry returns the currently selected file entry, or nil.
+func (s *Sidebar) SelectedEntry() *FileEntry {
+	if s.selectedIdx >= 0 && s.selectedIdx < len(s.flatEntries) {
+		return s.flatEntries[s.selectedIdx]
+	}
+	return nil
+}
+
+// Refresh reloads the file tree from disk.
+func (s *Sidebar) Refresh() {
+	if s.root == "" {
+		return
+	}
+	s.entries = s.loadDir(s.root, 0)
+	s.rebuildFlat()
+	if s.selectedIdx >= len(s.flatEntries) {
+		s.selectedIdx = len(s.flatEntries) - 1
+	}
+	if s.selectedIdx < 0 {
+		s.selectedIdx = 0
+	}
 }
 
 // Render draws the sidebar.
@@ -235,6 +276,42 @@ func (s *Sidebar) HandleEvent(ev tcell.Event) bool {
 	keyEv, ok := ev.(*tcell.EventKey)
 	if !ok {
 		return false
+	}
+
+	// Ctrl+N: create new file/directory
+	if keyEv.Key() == tcell.KeyCtrlN && s.onNewFile != nil {
+		parentDir := s.root
+		if entry := s.SelectedEntry(); entry != nil {
+			if entry.IsDir {
+				parentDir = entry.Path
+			} else {
+				parentDir = filepath.Dir(entry.Path)
+			}
+		}
+		s.onNewFile(parentDir)
+		return true
+	}
+
+	// F2: rename
+	if keyEv.Key() == tcell.KeyF2 && s.onRename != nil {
+		if entry := s.SelectedEntry(); entry != nil {
+			s.onRename(entry.Path)
+			return true
+		}
+	}
+
+	// 'r' or Delete: delete
+	if keyEv.Key() == tcell.KeyRune && keyEv.Rune() == 'r' && s.onDelete != nil {
+		if entry := s.SelectedEntry(); entry != nil {
+			s.onDelete(entry.Path)
+			return true
+		}
+	}
+	if keyEv.Key() == tcell.KeyDelete && s.onDelete != nil {
+		if entry := s.SelectedEntry(); entry != nil {
+			s.onDelete(entry.Path)
+			return true
+		}
 	}
 
 	switch keyEv.Key() {

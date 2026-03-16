@@ -169,6 +169,85 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 		e.sidebarFocus = false
 	})
 
+	// Sidebar: create new file/directory (Ctrl+N)
+	e.sidebar.SetOnNewFile(func(parentDir string) {
+		e.inputBar.Show("New file/dir (end with / for dir): ")
+		e.inputBar.SetOnSubmit(func(name string) {
+			e.inputBar.Hide()
+			name = strings.TrimSpace(name)
+			if name == "" {
+				e.statusBar.SetMessage("Creation cancelled")
+				return
+			}
+			fullPath := filepath.Join(parentDir, name)
+			if strings.HasSuffix(name, "/") {
+				if err := os.MkdirAll(fullPath, 0755); err != nil {
+					e.statusBar.SetMessage("Error: " + err.Error())
+					return
+				}
+				e.statusBar.SetMessage("Created directory: " + name)
+			} else {
+				// Ensure parent directory exists
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					e.statusBar.SetMessage("Error: " + err.Error())
+					return
+				}
+				f, err := os.Create(fullPath)
+				if err != nil {
+					e.statusBar.SetMessage("Error: " + err.Error())
+					return
+				}
+				f.Close()
+				e.statusBar.SetMessage("Created: " + name)
+			}
+			e.sidebar.Refresh()
+		})
+	})
+
+	// Sidebar: delete file/directory (r / Delete)
+	e.sidebar.SetOnDelete(func(path string) {
+		rel, _ := filepath.Rel(e.projectRoot, path)
+		if rel == "" {
+			rel = filepath.Base(path)
+		}
+		e.inputBar.Show(fmt.Sprintf("Delete '%s'? (y/n): ", rel))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				e.statusBar.SetMessage("Delete cancelled")
+				return
+			}
+			if err := os.RemoveAll(path); err != nil {
+				e.statusBar.SetMessage("Error: " + err.Error())
+				return
+			}
+			e.statusBar.SetMessage("Deleted: " + rel)
+			e.sidebar.Refresh()
+		})
+	})
+
+	// Sidebar: rename file/directory (F2)
+	e.sidebar.SetOnRename(func(path string) {
+		oldName := filepath.Base(path)
+		e.inputBar.Show("Rename to: ")
+		e.inputBar.SetValue(oldName)
+		e.inputBar.SetOnSubmit(func(newName string) {
+			e.inputBar.Hide()
+			newName = strings.TrimSpace(newName)
+			if newName == "" || newName == oldName {
+				e.statusBar.SetMessage("Rename cancelled")
+				return
+			}
+			newPath := filepath.Join(filepath.Dir(path), newName)
+			if err := os.Rename(path, newPath); err != nil {
+				e.statusBar.SetMessage("Error: " + err.Error())
+				return
+			}
+			e.statusBar.SetMessage(fmt.Sprintf("Renamed: %s → %s", oldName, newName))
+			e.sidebar.Refresh()
+		})
+	})
+
 	// Wire panel click callback — navigate to search result / diagnostic
 	e.panel.SetOnLineClick(func(tabIdx int, lineIdx int) {
 		e.handlePanelLineClick(tabIdx, lineIdx)

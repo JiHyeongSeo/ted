@@ -51,6 +51,11 @@ func (ib *InputBar) SetOnCancel(fn func()) {
 	ib.onCancel = fn
 }
 
+// SetValue pre-fills the input bar with a value.
+func (ib *InputBar) SetValue(val string) {
+	ib.value = []rune(val)
+}
+
 // SetBoundsFromScreen positions the input bar centered on screen.
 func (ib *InputBar) SetBoundsFromScreen(width, height int) {
 	barWidth := width / 2
