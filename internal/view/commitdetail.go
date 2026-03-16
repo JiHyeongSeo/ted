@@ -16,6 +16,7 @@ type CommitDetailView struct {
 	theme       *syntax.Theme
 	commit      *git.Commit
 	files       []string // "M\tpath/to/file" format
+	staged      []bool   // parallel to files: true if file is staged
 	scrollY     int
 	selectedIdx int // selected file index (-1 = none)
 	onFileEnter func(commit *git.Commit, fileLine string)
@@ -28,12 +29,55 @@ func NewCommitDetailView(theme *syntax.Theme) *CommitDetailView {
 func (cv *CommitDetailView) SetCommit(commit *git.Commit, files []string) {
 	cv.commit = commit
 	cv.files = files
+	cv.staged = make([]bool, len(files))
 	cv.scrollY = 0
 	if len(files) > 0 {
 		cv.selectedIdx = 0
 	} else {
 		cv.selectedIdx = -1
 	}
+}
+
+// SetCommitWithStaged sets the commit with staged info for each file.
+func (cv *CommitDetailView) SetCommitWithStaged(commit *git.Commit, files []string, staged []bool) {
+	cv.commit = commit
+	cv.files = files
+	cv.staged = staged
+	cv.scrollY = 0
+	if len(files) > 0 {
+		cv.selectedIdx = 0
+	} else {
+		cv.selectedIdx = -1
+	}
+}
+
+// UpdateFilesWithStaged updates files and staged info, preserving selection.
+func (cv *CommitDetailView) UpdateFilesWithStaged(files []string, staged []bool) {
+	prevPath := ""
+	if cv.selectedIdx >= 0 && cv.selectedIdx < len(cv.files) {
+		prevPath = cv.files[cv.selectedIdx]
+	}
+	cv.files = files
+	cv.staged = staged
+	// Try to keep the same file selected
+	cv.selectedIdx = 0
+	for i, f := range files {
+		if f == prevPath {
+			cv.selectedIdx = i
+			break
+		}
+	}
+	if len(files) == 0 {
+		cv.selectedIdx = -1
+	}
+}
+
+// IsSelectedFileStaged returns whether the currently selected file is staged.
+func (cv *CommitDetailView) IsSelectedFileStaged() bool {
+	if cv.selectedIdx >= 0 && cv.selectedIdx < len(cv.staged) {
+		return cv.staged[cv.selectedIdx]
+	}
+	return false
 }
 
 // SetOnFileEnter sets callback when Enter is pressed on a file.
@@ -92,7 +136,7 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 
 	// Draw focus indicator label on separator
 	if cv.IsFocused() {
-		label := " Files (↑↓ Enter:diff  a:stage  Esc:back) "
+		label := " Files (↑↓ Enter:diff  Space:stage  u:unstage  Esc:back) "
 		lx := bounds.X + 1
 		labelStyle := defaultStyle.Foreground(tcell.ColorWhite).Background(tcell.ColorSteelBlue).Bold(true)
 		for _, ch := range label {
@@ -152,6 +196,8 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 			displayPath = line[idx+1:]
 		}
 
+		isStaged := i < len(cv.staged) && cv.staged[i]
+
 		style := defaultStyle
 		switch status {
 		case "A":
@@ -174,9 +220,19 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 			screen.SetContent(bounds.X+1, y, '>', nil, style)
 		}
 
+		// Draw staged indicator
+		stagedX := bounds.X + 3
+		if isStaged {
+			stagedStyle := style
+			if i != cv.selectedIdx {
+				stagedStyle = addedStyle
+			}
+			screen.SetContent(stagedX, y, '*', nil, stagedStyle)
+		}
+
 		// Draw status at fixed column, then path at fixed column
-		statusX := bounds.X + 3
-		pathX := bounds.X + 7
+		statusX := bounds.X + 5
+		pathX := bounds.X + 9
 		// Draw status (e.g. "M", "??", "A")
 		sx := statusX
 		for _, ch := range status {
