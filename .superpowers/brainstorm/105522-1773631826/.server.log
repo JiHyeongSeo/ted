@@ -1,0 +1,4 @@
+{"type":"server-started","port":51896,"host":"0.0.0.0","url_host":"localhost","url":"http://localhost:51896","screen_dir":"/home/seoji/local/ted/.superpowers/brainstorm/105522-1773631826"}
+{"type":"screen-added","file":"/home/seoji/local/ted/.superpowers/brainstorm/105522-1773631826/git-graph-design.html"}
+{"type":"screen-added","file":"/home/seoji/local/ted/.superpowers/brainstorm/105522-1773631826/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

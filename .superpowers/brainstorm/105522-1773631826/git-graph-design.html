@@ -1,0 +1,48 @@
+<h2>Git Graph 디자인</h2>
+<p class="subtitle">ted 터미널 에디터 — Phase 4 설계안</p>
+
+<div class="section">
+  <h3>전체 레이아웃</h3>
+  <div class="mockup">
+    <div class="mockup-header">Git Graph Tab — 상하 분할</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 13px; background: #1e1e1e; color: #d4d4d4; padding: 0;">
+      <div style="background: #2d2d2d; padding: 4px 8px; border-bottom: 1px solid #404040; display: flex; gap: 8px;">
+        <span style="color: #888;">main.go</span>
+        <span style="color: #888;">buffer.go</span>
+        <span style="background: #1e1e1e; padding: 2px 8px; color: #fff; border-radius: 3px 3px 0 0;">⎇ Git Graph</span>
+      </div>
+      <div style="padding: 8px; border-bottom: 2px solid #007acc;">
+        <div style="color: #569cd6; margin-bottom: 2px;">Git Graph — master</div>
+        <div style="line-height: 1.6;">
+          <div><span style="color: #f44;">●</span> <span style="color: #888;">─</span> <span style="color: #e2c08d;">bd0abad</span> test: add benchmarks <span style="color: #888; font-size: 11px;">seoji · 2m</span></div>
+          <div><span style="color: #f44;">●</span> <span style="color: #888;">─</span> <span style="color: #e2c08d;">4a9a420</span> perf: avoid buf.Text() <span style="color: #888; font-size: 11px;">seoji · 5m</span></div>
+          <div style="background: #264f78; padding: 1px 4px;"><span style="color: #4ec9b0;">●</span> <span style="color: #888;">─</span> <span style="color: #e2c08d;">9308f23</span> <span style="color: #fff;">feat: mmap-based file loading</span> <span style="color: #888; font-size: 11px;">seoji · 8m</span></div>
+          <div><span style="color: #4ec9b0;">●</span> <span style="color: #888;">─</span> <span style="color: #e2c08d;">ce26793</span> refactor: migrate PieceTable <span style="color: #888; font-size: 11px;">seoji · 12m</span></div>
+          <div><span style="color: #4ec9b0;">●</span> <span style="color: #888;">┬</span> <span style="color: #e2c08d;">f6e98ad</span> feat: add MmapContent <span style="color: #888; font-size: 11px;">seoji · 15m</span></div>
+          <div><span style="color: #dcdcaa;">│</span> <span style="color: #4ec9b0;">●</span><span style="color: #888;">─</span> <span style="color: #e2c08d;">e0a38f0</span> feat: add ContentSource <span style="color: #888; font-size: 11px;">seoji · 18m</span></div>
+          <div><span style="color: #dcdcaa;">●</span> <span style="color: #888;">┘</span> <span style="color: #e2c08d;">dc2fe23</span> docs: add Phase 3 plan <span style="color: #888; font-size: 11px;">seoji · 20m</span></div>
+        </div>
+      </div>
+      <div style="padding: 8px;">
+        <div style="color: #569cd6; margin-bottom: 4px;">Commit Details</div>
+        <div style="color: #e2c08d;">9308f23</div>
+        <div style="color: #fff; margin: 4px 0;">feat: mmap-based file loading for large files (&gt;10MB)</div>
+        <div style="color: #888; font-size: 12px;">Author: seoji · Date: 2026-03-16 14:30</div>
+        <div style="margin-top: 6px; color: #888; font-size: 12px;">Changed files:</div>
+        <div style="color: #73c991; font-size: 12px;"> M internal/buffer/buffer.go</div>
+        <div style="color: #73c991; font-size: 12px;"> A internal/buffer/content.go</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>컴포넌트 구조 (5개 파일)</h3>
+  <div style="font-family: monospace; font-size: 13px; background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; line-height: 1.8;">
+    <div>internal/git/graph.go <span style="color: #888;">← git log 파싱, DAG 구조체</span></div>
+    <div>internal/git/graph_layout.go <span style="color: #888;">← DAG → 열 배정, 라인 경로 계산</span></div>
+    <div>internal/view/graphview.go <span style="color: #888;">← 그래프 렌더링 (상단)</span></div>
+    <div>internal/view/commitdetail.go <span style="color: #888;">← 커밋 상세 뷰 (하단)</span></div>
+    <div>internal/editor/editor_graph.go <span style="color: #888;">← 에디터 통합</span></div>
+  </div>
+</div>

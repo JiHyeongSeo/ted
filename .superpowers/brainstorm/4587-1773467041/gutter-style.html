@@ -1,0 +1,142 @@
+<h2>Git Gutter Marker Style</h2>
+<p class="subtitle">라인 번호 옆에 git diff 상태를 어떻게 표시할까요?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>VSCode Style - 얇은 세로 바</h3>
+      <p>라인 번호 왼쪽에 2px 폭의 컬러 바. 깔끔하고 미니멀.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Preview</div>
+        <div class="mockup-body" style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:14px;padding:0;line-height:1.6">
+          <div style="display:flex;align-items:stretch">
+            <div style="width:4px;background:#1e1e1e"></div>
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">10</div>
+            <div style="padding:2px 4px">func main() {</div>
+          </div>
+          <div style="display:flex;align-items:stretch">
+            <div style="width:4px;background:#4d9375"></div>
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">11</div>
+            <div style="padding:2px 4px;color:#4ec9b0">    fmt.Println("new line")</div>
+          </div>
+          <div style="display:flex;align-items:stretch">
+            <div style="width:4px;background:#4d9375"></div>
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">12</div>
+            <div style="padding:2px 4px;color:#4ec9b0">    fmt.Println("also new")</div>
+          </div>
+          <div style="display:flex;align-items:stretch">
+            <div style="width:4px;background:#0c7d9d"></div>
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">13</div>
+            <div style="padding:2px 4px;color:#ce9178">    name := "modified"</div>
+          </div>
+          <div style="display:flex;align-items:stretch">
+            <div style="width:4px;background:#1e1e1e"></div>
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">14</div>
+            <div style="padding:2px 4px">    return nil</div>
+          </div>
+          <div style="display:flex;align-items:stretch">
+            <div style="width:4px;background:#b11a04"></div>
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">15</div>
+            <div style="padding:2px 4px">}</div>
+          </div>
+          <div style="padding:4px 12px;color:#858585;font-size:11px;border-top:1px solid #333">
+            <span style="color:#4d9375">&#9646; added</span> &nbsp;
+            <span style="color:#0c7d9d">&#9646; modified</span> &nbsp;
+            <span style="color:#b11a04">&#9646; deleted (below)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Symbol Style - 기호 문자</h3>
+      <p>라인 번호와 코드 사이에 +, ~, - 같은 기호. 터미널 친화적.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Preview</div>
+        <div class="mockup-body" style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:14px;padding:0;line-height:1.6">
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">10</div>
+            <div style="padding:2px 4px;min-width:16px;color:#858585"> </div>
+            <div style="padding:2px 4px">func main() {</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">11</div>
+            <div style="padding:2px 4px;min-width:16px;color:#4d9375;font-weight:bold">+</div>
+            <div style="padding:2px 4px;color:#4ec9b0">    fmt.Println("new line")</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">12</div>
+            <div style="padding:2px 4px;min-width:16px;color:#4d9375;font-weight:bold">+</div>
+            <div style="padding:2px 4px;color:#4ec9b0">    fmt.Println("also new")</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">13</div>
+            <div style="padding:2px 4px;min-width:16px;color:#0c7d9d;font-weight:bold">~</div>
+            <div style="padding:2px 4px;color:#ce9178">    name := "modified"</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">14</div>
+            <div style="padding:2px 4px;min-width:16px;color:#858585"> </div>
+            <div style="padding:2px 4px">    return nil</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:32px">15</div>
+            <div style="padding:2px 4px;min-width:16px;color:#b11a04;font-weight:bold">-</div>
+            <div style="padding:2px 4px">}</div>
+          </div>
+          <div style="padding:4px 12px;color:#858585;font-size:11px;border-top:1px solid #333">
+            <span style="color:#4d9375">+ added</span> &nbsp;
+            <span style="color:#0c7d9d">~ modified</span> &nbsp;
+            <span style="color:#b11a04">- deleted (below)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Block Style - 전체 칸 배경색</h3>
+      <p>라인 번호 칸 전체에 배경색. 눈에 잘 띄지만 좀 두꺼움.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Preview</div>
+        <div class="mockup-body" style="background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:14px;padding:0;line-height:1.6">
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:40px;background:#1e1e1e">10</div>
+            <div style="padding:2px 4px">func main() {</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#d4d4d4;text-align:right;min-width:40px;background:#2ea04366">11</div>
+            <div style="padding:2px 4px;color:#4ec9b0">    fmt.Println("new line")</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#d4d4d4;text-align:right;min-width:40px;background:#2ea04366">12</div>
+            <div style="padding:2px 4px;color:#4ec9b0">    fmt.Println("also new")</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#d4d4d4;text-align:right;min-width:40px;background:#0c7d9d55">13</div>
+            <div style="padding:2px 4px;color:#ce9178">    name := "modified"</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#858585;text-align:right;min-width:40px;background:#1e1e1e">14</div>
+            <div style="padding:2px 4px">    return nil</div>
+          </div>
+          <div style="display:flex">
+            <div style="padding:2px 8px;color:#d4d4d4;text-align:right;min-width:40px;background:#b11a0455">15</div>
+            <div style="padding:2px 4px">}</div>
+          </div>
+          <div style="padding:4px 12px;color:#858585;font-size:11px;border-top:1px solid #333">
+            <span style="color:#4d9375">&#9632; added</span> &nbsp;
+            <span style="color:#0c7d9d">&#9632; modified</span> &nbsp;
+            <span style="color:#b11a04">&#9632; deleted (below)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
