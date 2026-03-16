@@ -603,7 +603,12 @@ func (e *Editor) render() {
 			e.editorView.Render(e.screen)
 		}
 		if r, ok := regions["editor.separator"]; ok {
-			sepStyle := e.theme.UIStyle("panel").Foreground(tcell.ColorGray)
+			// Use a brighter color for the separator when split is active
+			color := tcell.ColorGray
+			if e.splitManager.IsSplit() {
+				color = tcell.ColorBlue
+			}
+			sepStyle := e.theme.UIStyle("panel").Foreground(color)
 			for y := r.Y; y < r.Y+r.Height; y++ {
 				e.screen.SetContent(r.X, y, '│', nil, sepStyle)
 			}
