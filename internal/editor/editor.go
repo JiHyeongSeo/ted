@@ -54,6 +54,8 @@ type Editor struct {
 	lastHoverLine int // track last hover position to avoid duplicate requests
 	lastHoverCol  int
 	pythonEnv     *PythonEnv // current Python environment
+	splitManager    *SplitManager
+	rightEditorView *view.EditorView // nil when not split
 	diffTracker *git.DiffTracker
 	pasteActive bool
 }
@@ -79,6 +81,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 		lspHandler: lspHandler,
 	}
 
+	e.splitManager = NewSplitManager()
 	e.layout.SetSidebarWidth(cfg.Sidebar.Width)
 	e.layout.SetSidebarVisible(true) // sidebar always visible
 	e.layout.SetPanelHeight(cfg.Panel.Height)
@@ -410,6 +413,9 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 			if e.editorView != nil {
 				e.editorView.ClearSearchHighlights()
 			}
+			if e.rightEditorView != nil {
+				e.rightEditorView.ClearSearchHighlights()
+			}
 			e.layout.SetPanelVisible(false)
 			return
 		}
@@ -425,21 +431,29 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 			if e.editorView != nil {
 				e.editorView.ClearSearchHighlights()
 			}
+			if e.rightEditorView != nil {
+				e.rightEditorView.ClearSearchHighlights()
+			}
 			e.layout.SetPanelVisible(false)
 			return
 		}
 	}
 
-	// Pass to editor view for text input
-	if e.editorView != nil {
-		e.editorView.HandleEvent(ev)
-		e.syncTabFromView()
+	// Pass to active editor view for text input
+	av := e.activeEditorView()
+	if av != nil {
+		av.HandleEvent(ev)
+		if e.splitManager.IsSplit() && e.splitManager.ActivePane() == PaneRight {
+			e.syncRightTab()
+		} else {
+			e.syncTabFromView()
+		}
 		// Clear project search highlights on any edit action
 		if e.projectSearchQuery != "" {
 			k := ev.Key()
 			if k == tcell.KeyRune || k == tcell.KeyBackspace || k == tcell.KeyBackspace2 || k == tcell.KeyDelete || k == tcell.KeyEnter {
 				e.projectSearchQuery = ""
-				e.editorView.ClearSearchHighlights()
+				av.ClearSearchHighlights()
 			}
 		}
 		// Auto-trigger autocomplete after typing '.' or '::'
@@ -581,11 +595,30 @@ func (e *Editor) render() {
 		}
 	}
 
-	// Render editor view
-	if r, ok := regions["editor"]; ok && e.editorView != nil {
-		e.editorView.SetBounds(r)
-		e.editorView.SetFocused(true)
-		e.editorView.Render(e.screen)
+	// Render editor view(s)
+	if e.splitManager.IsSplit() {
+		if r, ok := regions["editor.left"]; ok && e.editorView != nil {
+			e.editorView.SetBounds(r)
+			e.editorView.SetFocused(e.splitManager.ActivePane() == PaneLeft)
+			e.editorView.Render(e.screen)
+		}
+		if r, ok := regions["editor.separator"]; ok {
+			sepStyle := e.theme.UIStyle("panel").Foreground(tcell.ColorGray)
+			for y := r.Y; y < r.Y+r.Height; y++ {
+				e.screen.SetContent(r.X, y, '│', nil, sepStyle)
+			}
+		}
+		if r, ok := regions["editor.right"]; ok && e.rightEditorView != nil {
+			e.rightEditorView.SetBounds(r)
+			e.rightEditorView.SetFocused(e.splitManager.ActivePane() == PaneRight)
+			e.rightEditorView.Render(e.screen)
+		}
+	} else {
+		if r, ok := regions["editor"]; ok && e.editorView != nil {
+			e.editorView.SetBounds(r)
+			e.editorView.SetFocused(true)
+			e.editorView.Render(e.screen)
+		}
 	}
 
 	// Render panel
@@ -614,9 +647,23 @@ func (e *Editor) render() {
 		e.statusBar.Render(e.screen)
 	}
 
+	// Helper to get active editor region
+	activeEditorRegion := func() (types.Rect, bool) {
+		if e.splitManager.IsSplit() {
+			if e.splitManager.ActivePane() == PaneRight {
+				r, ok := regions["editor.right"]
+				return r, ok
+			}
+			r, ok := regions["editor.left"]
+			return r, ok
+		}
+		r, ok := regions["editor"]
+		return r, ok
+	}
+
 	// Render overlays (search bar, input bar, palette) on top
 	if e.searchBar.IsVisible() {
-		if r, ok := regions["editor"]; ok {
+		if r, ok := activeEditorRegion(); ok {
 			// VS Code style: right-aligned small overlay at top of editor
 			barWidth := 40
 			if barWidth > r.Width {
@@ -635,7 +682,7 @@ func (e *Editor) render() {
 		}
 	}
 	if e.inputBar.IsVisible() {
-		if r, ok := regions["editor"]; ok {
+		if r, ok := activeEditorRegion(); ok {
 			// Right-aligned small overlay at top of editor
 			barWidth := 30
 			if barWidth > r.Width {
@@ -681,6 +728,34 @@ func (e *Editor) syncTabFromView() {
 	}
 	tab.Cursor = e.editorView.CursorPosition()
 	tab.ScrollY, tab.ScrollX = e.editorView.ScrollPosition()
+}
+
+func (e *Editor) activeEditorView() *view.EditorView {
+	if e.splitManager.IsSplit() && e.splitManager.ActivePane() == PaneRight {
+		return e.rightEditorView
+	}
+	return e.editorView
+}
+
+func (e *Editor) syncRightView() {
+	ps := e.splitManager.RightPane()
+	if ps == nil {
+		e.rightEditorView = nil
+		return
+	}
+	e.rightEditorView = view.NewEditorView(ps.Buffer, e.theme)
+	e.rightEditorView.SetLanguage(ps.Language)
+	e.rightEditorView.SetCursorPosition(ps.Cursor)
+	e.rightEditorView.SetScrollY(ps.ScrollY)
+}
+
+func (e *Editor) syncRightTab() {
+	ps := e.splitManager.RightPane()
+	if ps == nil || e.rightEditorView == nil {
+		return
+	}
+	ps.Cursor = e.rightEditorView.CursorPosition()
+	ps.ScrollY, ps.ScrollX = e.rightEditorView.ScrollPosition()
 }
 
 func (e *Editor) copyToSystemClipboard(text string) {
