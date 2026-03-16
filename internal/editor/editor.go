@@ -668,9 +668,15 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				e.graphFocus = 1 // move to file list
 				return
 			}
-			// Git operations via single-key shortcuts
+			// Git operations via single-key shortcuts.
+			// Normalize Shift+lowercase → uppercase so terminals that send
+			// ModShift+'p' instead of 'P' (common with Korean IME) also match.
 			if ev.Key() == tcell.KeyRune {
-				switch ev.Rune() {
+				r := ev.Rune()
+				if ev.Modifiers()&tcell.ModShift != 0 && r >= 'a' && r <= 'z' {
+					r -= 32
+				}
+				switch r {
 				case 'c':
 					e.graphGitCommit()
 					return
