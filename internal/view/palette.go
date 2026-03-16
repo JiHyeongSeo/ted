@@ -234,8 +234,22 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	}
 
 	// Draw hint text when empty
-	if p.query == "" {
-		hint := "Search files... (> for commands, : for line)"
+	showHint := p.query == "" ||
+		(p.mode == PaletteModeCommand && strings.TrimPrefix(p.query, ">") == "") ||
+		(p.mode == PaletteModeBuffer && strings.TrimPrefix(p.query, "#") == "") ||
+		(p.mode == PaletteModeGoLine && strings.TrimPrefix(p.query, ":") == "")
+	if showHint {
+		var hint string
+		switch p.mode {
+		case PaletteModeCommand:
+			hint = "Type to search commands..."
+		case PaletteModeBuffer:
+			hint = "Type to search open buffers..."
+		case PaletteModeGoLine:
+			hint = "Type line number..."
+		default:
+			hint = "Search files... (> commands, : line, # buffers)"
+		}
 		hintStyle := bgStyle.Foreground(tcell.ColorDarkGray)
 		hx := startX + 2
 		for _, ch := range hint {
