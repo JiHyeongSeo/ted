@@ -27,6 +27,7 @@ type PaletteItem struct {
 	Description    string
 	Command        string
 	FilePath       string // for file items
+	Keybinding     string // for command items, the primary keybinding
 	MatchPositions []int  // indices of matched characters in Label
 }
 
@@ -267,6 +268,19 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 					}
 					screen.SetContent(x, y, ch, nil, descStyle)
 					x += w
+				}
+			}
+
+			// Draw keybinding right-aligned
+			if kb := p.filtered[itemIdx].Keybinding; kb != "" {
+				kbStyle := style.Foreground(tcell.ColorDarkCyan)
+				kbWidth := runewidth.StringWidth(kb)
+				kbX := startX + paletteWidth - kbWidth - 2
+				if kbX > x+1 { // only if there's room
+					for _, ch := range kb {
+						screen.SetContent(kbX, y, ch, nil, kbStyle)
+						kbX += runewidth.RuneWidth(ch)
+					}
 				}
 			}
 		}

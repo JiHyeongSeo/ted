@@ -762,10 +762,18 @@ func (e *Editor) updatePaletteItems() {
 	cmds := e.commands.Commands()
 	cmdItems := make([]view.PaletteItem, len(cmds))
 	for i, cmd := range cmds {
+		// Get keybinding for this command
+		keybinding := ""
+		bindings := e.keymap.BindingsForCommand(cmd.Name)
+		if len(bindings) > 0 {
+			keybinding = bindings[0] // use first binding
+		}
+
 		cmdItems[i] = view.PaletteItem{
 			Label:       cmd.Name,
 			Description: cmd.Description,
 			Command:     cmd.Name,
+			Keybinding:  keybinding,
 		}
 	}
 	e.palette.SetItems(cmdItems)

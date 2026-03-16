@@ -255,3 +255,14 @@ func TestDetectModeBuffer(t *testing.T) {
 		t.Errorf("expected PaletteModeFile for 'test', got %d", p.mode)
 	}
 }
+
+func TestPaletteItemKeybinding(t *testing.T) {
+	item := PaletteItem{
+		Label:      "file.save",
+		Description: "Save the current file",
+		Keybinding: "Ctrl+S",
+	}
+	if item.Keybinding != "Ctrl+S" {
+		t.Errorf("expected Ctrl+S, got %s", item.Keybinding)
+	}
+}
