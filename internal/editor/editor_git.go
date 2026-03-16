@@ -382,22 +382,32 @@ func (e *Editor) graphGitPush() {
 	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Push cancelled") })
 	e.listPicker.SetOnSelect(func(item string) {
 		branch := strings.TrimLeft(item, "* ")
-		e.statusBar.SetMessage(fmt.Sprintf("Pushing %s...", branch))
-		go func() {
-			out, err := e.diffTracker.PushBranch(branch)
-			if err != nil {
-				e.statusBar.SetMessage(err.Error())
-			} else if out != "" {
-				e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
-				e.graphRefresh()
-			} else {
-				e.statusBar.SetMessage(fmt.Sprintf("Pushed %s successfully", branch))
-				e.graphRefresh()
+		e.inputBar.Show(fmt.Sprintf("Push '%s'? (p=push  f=force-with-lease  n=cancel): ", branch))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			answer = strings.ToLower(strings.TrimSpace(answer))
+			if answer != "p" && answer != "f" {
+				e.statusBar.SetMessage("Push cancelled")
+				return
 			}
-			if e.screen != nil {
-				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
-			}
-		}()
+			force := answer == "f"
+			e.statusBar.SetMessage(fmt.Sprintf("Pushing %s...", branch))
+			go func() {
+				out, err := e.diffTracker.PushBranch(branch, force)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+				} else if out != "" {
+					e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
+					e.graphRefresh()
+				} else {
+					e.statusBar.SetMessage(fmt.Sprintf("Pushed %s successfully", branch))
+					e.graphRefresh()
+				}
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+			}()
+		})
 	})
 }
 
@@ -762,6 +772,57 @@ func (e *Editor) graphGitStashPop() {
 				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 			}
 		}()
+	})
+}
+
+// graphGitCreateBranch creates a new branch.
+// If a commit is selected in the graph, offers to branch from that commit.
+// Otherwise branches from current HEAD.
+// After naming, asks whether to switch to the new branch.
+func (e *Editor) graphGitCreateBranch() {
+	if e.diffTracker == nil {
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+
+	// Determine base: selected commit or current HEAD
+	base := ""
+	baseDesc := fmt.Sprintf("HEAD (%s)", current)
+	if e.graphView != nil {
+		if commit := e.graphView.SelectedCommit(); commit != nil && commit.Hash != "uncommitted" {
+			base = commit.Hash
+			baseDesc = commit.ShortHash + " " + commit.Message
+		}
+	}
+
+	e.inputBar.Show(fmt.Sprintf("New branch from [%s]: ", baseDesc))
+	e.inputBar.SetOnSubmit(func(name string) {
+		e.inputBar.Hide()
+		name = strings.TrimSpace(name)
+		if name == "" {
+			e.statusBar.SetMessage("Branch creation cancelled")
+			return
+		}
+		e.inputBar.Show(fmt.Sprintf("Switch to '%s' after creating? (y/n): ", name))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			checkout := strings.ToLower(strings.TrimSpace(answer)) == "y"
+			go func() {
+				_, err := e.diffTracker.CreateBranch(name, base, checkout)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+				} else if checkout {
+					e.statusBar.SetMessage(fmt.Sprintf("Created and switched to branch '%s'", name))
+					e.graphRefresh()
+				} else {
+					e.statusBar.SetMessage(fmt.Sprintf("Created branch '%s'", name))
+					e.graphRefresh()
+				}
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+			}()
+		})
 	})
 }
 

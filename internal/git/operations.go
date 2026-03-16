@@ -100,9 +100,13 @@ func (d *DiffTracker) Push() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// PushBranch pushes a specific branch to origin.
-func (d *DiffTracker) PushBranch(branch string) (string, error) {
-	cmd := exec.Command("git", "-C", d.repoRoot, "push", "origin", branch)
+// PushBranch pushes a specific branch to origin. force=true uses --force-with-lease.
+func (d *DiffTracker) PushBranch(branch string, force bool) (string, error) {
+	args := []string{"-C", d.repoRoot, "push", "origin", branch}
+	if force {
+		args = append(args, "--force-with-lease")
+	}
+	cmd := exec.Command("git", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git push origin %s: %s", branch, strings.TrimSpace(string(out)))
@@ -156,6 +160,30 @@ func (d *DiffTracker) DeleteRemoteTag(name string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git push --delete tag: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CreateBranch creates a new branch from the given base (commit hash or branch name).
+// If checkout is true, switches to the new branch immediately.
+func (d *DiffTracker) CreateBranch(name, base string, checkout bool) (string, error) {
+	var cmd *exec.Cmd
+	if checkout {
+		if base != "" {
+			cmd = exec.Command("git", "-C", d.repoRoot, "checkout", "-b", name, base)
+		} else {
+			cmd = exec.Command("git", "-C", d.repoRoot, "checkout", "-b", name)
+		}
+	} else {
+		if base != "" {
+			cmd = exec.Command("git", "-C", d.repoRoot, "branch", name, base)
+		} else {
+			cmd = exec.Command("git", "-C", d.repoRoot, "branch", name)
+		}
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git branch: %s", strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
