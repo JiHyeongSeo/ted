@@ -52,7 +52,8 @@ type Editor struct {
 	running      bool
 	sidebarFocus bool // true when sidebar has keyboard focus
 	panelFocus   bool // true when bottom panel has keyboard focus
-	quitPending  bool // true when quit requested with unsaved changes
+	quitPending    bool // true when quit requested with unsaved changes
+	untitledCount  int  // counter for "Untitled-N" tab names
 	lspManager   *lsp.ServerManager
 	lspHandler   *lsp.NotificationHandler
 	projectRoot  string // root directory for project search and LSP
@@ -372,11 +373,20 @@ func (e *Editor) OpenDirectory(path string) {
 	e.updatePaletteFileItems()
 }
 
-// OpenEmpty opens a new empty buffer tab.
+// OpenEmpty opens a new empty buffer tab (used internally for placeholder tabs).
 func (e *Editor) OpenEmpty() {
+	e.openUntitled()
+}
+
+// openUntitled creates a new unnamed buffer with an incremented "Untitled-N" display name.
+func (e *Editor) openUntitled() {
+	e.untitledCount++
 	buf := buffer.NewBuffer("")
+	buf.SetUntitledName(fmt.Sprintf("Untitled-%d", e.untitledCount))
 	e.tabs.Open(buf, "text")
 	e.syncViewToTab()
+	e.sidebarFocus = false
+	e.panelFocus = false
 }
 
 // Run starts the editor event loop.
@@ -863,6 +873,8 @@ func (e *Editor) render() {
 				title = "⎇ Git Graph"
 			} else if t.Buffer.Path() != "" {
 				title = filepath.Base(t.Buffer.Path())
+			} else if t.Buffer.UntitledName() != "" {
+				title = t.Buffer.UntitledName()
 			}
 			tabs[i] = view.Tab{
 				Title:    title,
@@ -1251,6 +1263,7 @@ func (e *Editor) updatePaletteFileItems() {
 
 // LoadKeybindings loads key bindings from the default keybindings config.
 func (e *Editor) LoadKeybindings() {
+	e.keymap.Bind("ctrl+n", "file.new", "")
 	e.keymap.Bind("ctrl+s", "file.save", "")
 	e.keymap.Bind("ctrl+o", "file.open", "")
 	e.keymap.Bind("ctrl+w", "file.close", "")
@@ -1317,8 +1330,45 @@ func (e *Editor) ExecuteCommand(name string) error {
 	}
 
 	switch name {
+	case "file.new":
+		e.openUntitled()
 	case "file.save":
 		if tab := e.tabs.Active(); tab != nil {
+			if tab.Buffer.Path() == "" {
+				// Untitled — ask for save path
+				e.inputBar.Show("Save as: ")
+				e.inputBar.SetOnSubmit(func(path string) {
+					e.inputBar.Hide()
+					path = strings.TrimSpace(path)
+					if path == "" {
+						e.statusBar.SetMessage("Save cancelled")
+						return
+					}
+					if !filepath.IsAbs(path) {
+						if e.projectRoot != "" {
+							path = filepath.Join(e.projectRoot, path)
+						} else {
+							abs, err := filepath.Abs(path)
+							if err == nil {
+								path = abs
+							}
+						}
+					}
+					tab.Buffer.SetPath(path)
+					tab.Buffer.SetUntitledName("")
+					tab.Language = detectLanguage(path)
+					if err := tab.Buffer.Save(); err != nil {
+						tab.Buffer.SetPath("")
+						e.statusBar.SetMessage("Save failed: " + err.Error())
+						return
+					}
+					e.syncViewToTab()
+					e.statusBar.SetMessage("Saved: " + filepath.Base(path))
+					e.updateGutterMarkers()
+					e.updatePaletteFileItems()
+				})
+				return nil
+			}
 			if err := tab.Buffer.Save(); err != nil {
 				return err
 			}
@@ -1328,6 +1378,8 @@ func (e *Editor) ExecuteCommand(name string) error {
 			}
 			e.updateGutterMarkers()
 		}
+	case "editor.format":
+		e.formatCurrentBuffer()
 	case "file.close":
 		e.closeCurrentTab()
 	case "edit.undo":
@@ -1672,6 +1724,33 @@ func detectLanguage(path string) string {
 	default:
 		return "text"
 	}
+}
+
+// formatCurrentBuffer runs the appropriate formatter on the active buffer,
+// replaces the content in-place (marks it dirty), and updates the view.
+func (e *Editor) formatCurrentBuffer() {
+	tab := e.tabs.Active()
+	if tab == nil || e.editorView == nil {
+		return
+	}
+	original := tab.Buffer.Text()
+	formatted, err := formatDocument(original, tab.Language, tab.Buffer.Path())
+	if err != nil {
+		e.statusBar.SetMessage("Format: " + err.Error())
+		return
+	}
+	if formatted == original {
+		e.statusBar.SetMessage("Already formatted")
+		return
+	}
+	// Replace buffer content: delete all then insert (undo-able, marks dirty)
+	tab.Buffer.Delete(0, 0, len(original))
+	tab.Buffer.Insert(0, 0, formatted)
+	if e.editorView != nil {
+		e.editorView.ReparseHighlighting()
+	}
+	e.syncTabFromView()
+	e.statusBar.SetMessage("Formatted")
 }
 
 // byteColToRuneCol converts a byte offset to a rune count within a string.

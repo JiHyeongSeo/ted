@@ -7,11 +7,12 @@ import (
 
 // Buffer wraps a PieceTable with line indexing, file I/O, and undo/redo.
 type Buffer struct {
-	pt          *PieceTable
-	undo        *UndoManager
-	path        string
-	ReadOnly    bool  // true for non-UTF-8 (binary) files
-	lineOffsets []int // byte offset of each line start
+	pt           *PieceTable
+	undo         *UndoManager
+	path         string
+	untitledName string // display name for unsaved buffers, e.g. "Untitled-1"
+	ReadOnly     bool   // true for non-UTF-8 (binary) files
+	lineOffsets  []int  // byte offset of each line start
 }
 
 // NewBuffer creates a buffer from a string.
@@ -163,6 +164,24 @@ func (b *Buffer) Path() string {
 // SetPath sets the file path for the buffer.
 func (b *Buffer) SetPath(path string) {
 	b.path = path
+}
+
+// UntitledName returns the display name for an unsaved buffer.
+func (b *Buffer) UntitledName() string {
+	return b.untitledName
+}
+
+// SetUntitledName sets the display name for an unsaved buffer.
+func (b *Buffer) SetUntitledName(name string) {
+	b.untitledName = name
+}
+
+// DisplayName returns the tab display name: file basename, untitled name, or "".
+func (b *Buffer) DisplayName() string {
+	if b.path != "" {
+		return b.path // caller uses filepath.Base
+	}
+	return b.untitledName
 }
 
 // Close releases resources held by the buffer (e.g., mmap).

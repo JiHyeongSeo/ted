@@ -3,6 +3,14 @@ package editor
 // RegisterBuiltinCommands registers all built-in editor commands.
 func RegisterBuiltinCommands(reg *CommandRegistry) {
 	reg.Register(&Command{
+		Name:        "file.new",
+		Description: "New untitled file",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("file.new")
+		},
+	})
+
+	reg.Register(&Command{
 		Name:        "file.save",
 		Description: "Save the current file",
 		Execute: func(ctx EditorContext) error {
@@ -23,6 +31,14 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 		Description: "Close the current tab",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("file.close")
+		},
+	})
+
+	reg.Register(&Command{
+		Name:        "editor.format",
+		Description: "Format/Beautify document (JSON built-in; HTML/CSS/JS via prettier; Go via gofmt; Python via black; SQL via sqlformat)",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("editor.format")
 		},
 	})
 
