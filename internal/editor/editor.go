@@ -946,6 +946,8 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
 	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
+	e.keymap.Bind("ctrl+\\", "split.vertical", "")
+	e.keymap.Bind("alt+w", "split.focus", "")
 }
 
 // --- EditorContext interface implementation ---
@@ -1099,6 +1101,32 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.showPythonEnvSelector()
 	case "editor.quit":
 		e.tryQuit()
+	case "split.vertical":
+		if !e.splitManager.IsSplit() {
+			tab := e.tabs.Active()
+			if tab != nil {
+				e.syncTabFromView()
+				e.splitManager.Split(tab.Buffer, tab.Language)
+				e.layout.SetSplitMode(true)
+				e.syncRightView()
+			}
+		}
+	case "split.close":
+		if e.splitManager.IsSplit() {
+			e.syncRightTab()
+			e.splitManager.CloseSplit()
+			e.layout.SetSplitMode(false)
+			e.rightEditorView = nil
+		}
+	case "split.focus":
+		if e.splitManager.IsSplit() {
+			if e.splitManager.ActivePane() == PaneLeft {
+				e.syncTabFromView()
+			} else {
+				e.syncRightTab()
+			}
+			e.splitManager.FocusOther()
+		}
 	}
 	return nil
 }
