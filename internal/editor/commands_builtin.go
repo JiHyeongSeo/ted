@@ -196,4 +196,27 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 			return ctx.ExecuteCommand("git.blame")
 		},
 	})
+
+	// Split commands
+	reg.Register(&Command{
+		Name:        "split.vertical",
+		Description: "Split editor vertically",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("split.vertical")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "split.close",
+		Description: "Close current split pane",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("split.close")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "split.focus",
+		Description: "Switch focus to other pane",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("split.focus")
+		},
+	})
 }
