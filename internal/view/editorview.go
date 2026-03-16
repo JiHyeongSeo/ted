@@ -507,7 +507,11 @@ func (e *EditorView) SelectedText() string {
 	endByte := e.runeColToByteCol(end.Line, end.Col)
 	endOffset := e.buf.LineOffset(end.Line) + endByte
 
-	return e.buf.Text()[startOffset:endOffset]
+	length := endOffset - startOffset
+	if length <= 0 {
+		return ""
+	}
+	return e.buf.TextRange(startOffset, length)
 }
 
 // Copy copies selected text to internal clipboard.
@@ -812,6 +816,9 @@ func (e *EditorView) ensureCursorVisible() {
 // reparseTS re-parses the buffer with tree-sitter after edits.
 func (e *EditorView) reparseTS() {
 	if e.tsHighlighter != nil {
+		if e.buf.IsLarge() {
+			return
+		}
 		e.tsHighlighter.Parse([]byte(e.buf.Text()))
 	}
 }
@@ -1180,7 +1187,9 @@ func (e *EditorView) SetLanguage(language string) {
 	if syntax.TSSupported(language) {
 		e.tsHighlighter = syntax.NewTSHighlighter(e.theme, language)
 		if e.tsHighlighter != nil {
-			e.tsHighlighter.Parse([]byte(e.buf.Text()))
+			if !e.buf.IsLarge() {
+				e.tsHighlighter.Parse([]byte(e.buf.Text()))
+			}
 		}
 		e.highlighter = nil
 	} else {

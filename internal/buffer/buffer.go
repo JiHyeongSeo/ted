@@ -75,6 +75,11 @@ func (b *Buffer) Text() string {
 	return b.pt.Text()
 }
 
+// TextRange returns length bytes starting at the given byte offset.
+func (b *Buffer) TextRange(offset, length int) string {
+	return b.pt.TextRange(offset, length)
+}
+
 // LineCount returns the number of lines.
 func (b *Buffer) LineCount() int {
 	return len(b.lineOffsets)
