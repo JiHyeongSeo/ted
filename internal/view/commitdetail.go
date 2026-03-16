@@ -163,12 +163,23 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 			}
 			fg, _, _ := style.Decompose()
 			style = selectedBg.Foreground(fg)
-			screen.SetContent(bounds.X+1, y, '▸', nil, style)
+			screen.SetContent(bounds.X+1, y, '>', nil, style)
 		}
 
-		// Draw: "  M  path/to/file" with clear spacing
-		displayLine := fmt.Sprintf("%-2s  %s", status, displayPath)
-		cv.drawLine(screen, bounds.X+3, y, bounds.Width-3, displayLine, style)
+		// Draw status at fixed column, then path at fixed column
+		statusX := bounds.X + 3
+		pathX := bounds.X + 7
+		// Draw status (e.g. "M", "??", "A")
+		sx := statusX
+		for _, ch := range status {
+			if sx >= pathX {
+				break
+			}
+			screen.SetContent(sx, y, ch, nil, style)
+			sx++
+		}
+		// Draw path
+		cv.drawLine(screen, pathX, y, bounds.X+bounds.Width-pathX, displayPath, style)
 		y++
 	}
 }
