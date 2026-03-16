@@ -390,6 +390,37 @@ func (e *Editor) graphGitPush() {
 	})
 }
 
+// graphGitPushTags pushes all local tags to remote with confirmation.
+func (e *Editor) graphGitPushTags() {
+	if e.diffTracker == nil {
+		return
+	}
+	e.inputBar.Show("Push all tags to origin? (y/n): ")
+	e.inputBar.SetOnSubmit(func(answer string) {
+		e.inputBar.Hide()
+		if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+			e.statusBar.SetMessage("Tag push cancelled")
+			return
+		}
+		e.statusBar.SetMessage("Pushing tags...")
+		go func() {
+			out, err := e.diffTracker.PushTags()
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else if out != "" {
+				e.statusBar.SetMessage("Tags pushed: " + strings.Split(out, "\n")[0])
+				e.graphRefresh()
+			} else {
+				e.statusBar.SetMessage("Tags pushed successfully")
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
+}
+
 // graphGitPull pulls from remote and refreshes graph.
 func (e *Editor) graphGitPull() {
 	if e.diffTracker == nil {
@@ -446,7 +477,8 @@ func (e *Editor) graphGitTag() {
 	})
 }
 
-// graphGitMerge shows branch picker and merges selected branch.
+// graphGitMerge shows branch picker and merges selected branch into current.
+// Items are displayed as "branch ──► current" to make direction explicit.
 func (e *Editor) graphGitMerge() {
 	if e.diffTracker == nil {
 		return
@@ -457,7 +489,6 @@ func (e *Editor) graphGitMerge() {
 		return
 	}
 	current := e.diffTracker.CurrentBranch()
-	// Filter out current branch
 	var others []string
 	for _, b := range branches {
 		if b != current {
@@ -468,37 +499,36 @@ func (e *Editor) graphGitMerge() {
 		e.statusBar.SetMessage("No other branches to merge")
 		return
 	}
-	e.listPicker.Show(fmt.Sprintf("Merge into %s", current), others)
-	e.listPicker.SetOnSelect(func(branch string) {
-		e.inputBar.Show(fmt.Sprintf("Merge %s into %s? (y/n): ", branch, current))
-		e.inputBar.SetOnSubmit(func(answer string) {
-			e.inputBar.Hide()
-			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
-				e.statusBar.SetMessage("Merge cancelled")
-				return
+	// Show direction: "source ──► current"
+	displayed := make([]string, len(others))
+	for i, b := range others {
+		displayed[i] = fmt.Sprintf("%s  ──►  %s", b, current)
+	}
+	e.listPicker.Show("Merge  (Enter to execute)", displayed)
+	e.listPicker.SetOnSelect(func(item string) {
+		branch := strings.SplitN(item, "  ──►  ", 2)[0]
+		e.statusBar.SetMessage(fmt.Sprintf("Merging %s into %s...", branch, current))
+		go func() {
+			out, err := e.diffTracker.Merge(branch)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				first := strings.Split(out, "\n")[0]
+				e.statusBar.SetMessage("Merge: " + first)
+				e.graphRefresh()
 			}
-			e.statusBar.SetMessage("Merging " + branch + "...")
-			go func() {
-				out, err := e.diffTracker.Merge(branch)
-				if err != nil {
-					e.statusBar.SetMessage(err.Error())
-				} else {
-					first := strings.Split(out, "\n")[0]
-					e.statusBar.SetMessage("Merge: " + first)
-					e.graphRefresh()
-				}
-				if e.screen != nil {
-					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
-				}
-			}()
-		})
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
 	})
 	e.listPicker.SetOnCancel(func() {
 		e.statusBar.SetMessage("Merge cancelled")
 	})
 }
 
-// graphGitRebase shows branch picker and rebases onto selected branch.
+// graphGitRebase shows branch picker and rebases current onto selected branch.
+// Items are displayed as "current ──► target" to make direction explicit.
 func (e *Editor) graphGitRebase() {
 	if e.diffTracker == nil {
 		return
@@ -519,33 +549,157 @@ func (e *Editor) graphGitRebase() {
 		e.statusBar.SetMessage("No other branches to rebase onto")
 		return
 	}
-	e.listPicker.Show(fmt.Sprintf("Rebase %s onto", current), others)
-	e.listPicker.SetOnSelect(func(target string) {
-		e.inputBar.Show(fmt.Sprintf("Rebase %s onto %s? (y/n): ", current, target))
+	// Show direction: "current ──► target"
+	displayed := make([]string, len(others))
+	for i, b := range others {
+		displayed[i] = fmt.Sprintf("%s  ──►  %s", current, b)
+	}
+	e.listPicker.Show("Rebase  (Enter to execute)", displayed)
+	e.listPicker.SetOnSelect(func(item string) {
+		target := strings.SplitN(item, "  ──►  ", 2)[1]
+		e.statusBar.SetMessage(fmt.Sprintf("Rebasing %s onto %s...", current, target))
+		go func() {
+			out, err := e.diffTracker.Rebase(target)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				first := strings.Split(out, "\n")[0]
+				e.statusBar.SetMessage("Rebase: " + first)
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
+	e.listPicker.SetOnCancel(func() {
+		e.statusBar.SetMessage("Rebase cancelled")
+	})
+}
+
+// graphGitDelete is the unified delete flow (d key).
+// Step 1: choose Branch or Tag.
+// Step 2: pick the target from a list.
+// Step 3: choose scope via inputBar (l/r/F/n).
+func (e *Editor) graphGitDelete() {
+	if e.diffTracker == nil {
+		return
+	}
+	e.listPicker.Show("Delete", []string{"Branch", "Tag"})
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(kind string) {
+		switch kind {
+		case "Branch":
+			e.graphGitDeleteBranch()
+		case "Tag":
+			e.graphGitDeleteTag()
+		}
+	})
+}
+
+// graphGitDeleteBranch lists branches and deletes the selected one.
+func (e *Editor) graphGitDeleteBranch() {
+	branches, err := e.diffTracker.ListBranches()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+	var others []string
+	for _, b := range branches {
+		if b != current {
+			others = append(others, b)
+		}
+	}
+	if len(others) == 0 {
+		e.statusBar.SetMessage("No other branches to delete")
+		return
+	}
+	e.listPicker.Show(fmt.Sprintf("Delete branch  (current: %s)", current), others)
+	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Branch delete cancelled") })
+	e.listPicker.SetOnSelect(func(branch string) {
+		e.inputBar.Show(fmt.Sprintf("Delete '%s'? (l=local  r=local+remote  F=force-local  n=cancel): ", branch))
 		e.inputBar.SetOnSubmit(func(answer string) {
 			e.inputBar.Hide()
-			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
-				e.statusBar.SetMessage("Rebase cancelled")
+			answer = strings.TrimSpace(answer)
+			if strings.ToLower(answer) == "n" || answer == "" {
+				e.statusBar.SetMessage("Branch delete cancelled")
 				return
 			}
-			e.statusBar.SetMessage("Rebasing onto " + target + "...")
+			force := answer == "F"
+			deleteRemote := strings.ToLower(answer) == "r"
 			go func() {
-				out, err := e.diffTracker.Rebase(target)
+				_, err := e.diffTracker.DeleteBranch(branch, force)
 				if err != nil {
 					e.statusBar.SetMessage(err.Error())
-				} else {
-					first := strings.Split(out, "\n")[0]
-					e.statusBar.SetMessage("Rebase: " + first)
-					e.graphRefresh()
+					if e.screen != nil {
+						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					}
+					return
 				}
+				if deleteRemote {
+					_, err = e.diffTracker.DeleteRemoteBranch(branch)
+					if err != nil {
+						e.statusBar.SetMessage(fmt.Sprintf("Local deleted, remote failed: %s", err.Error()))
+					} else {
+						e.statusBar.SetMessage(fmt.Sprintf("Deleted branch '%s' locally and from remote", branch))
+					}
+				} else {
+					e.statusBar.SetMessage(fmt.Sprintf("Deleted branch '%s' locally", branch))
+				}
+				e.graphRefresh()
 				if e.screen != nil {
 					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 				}
 			}()
 		})
 	})
-	e.listPicker.SetOnCancel(func() {
-		e.statusBar.SetMessage("Rebase cancelled")
+}
+
+// graphGitDeleteTag lists tags and deletes the selected one.
+func (e *Editor) graphGitDeleteTag() {
+	tags, err := e.diffTracker.ListTags()
+	if err != nil || len(tags) == 0 {
+		e.statusBar.SetMessage("No tags found")
+		return
+	}
+	e.listPicker.Show("Delete tag", tags)
+	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Tag delete cancelled") })
+	e.listPicker.SetOnSelect(func(tag string) {
+		e.inputBar.Show(fmt.Sprintf("Delete tag '%s'? (l=local  r=local+remote  n=cancel): ", tag))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			answer = strings.ToLower(strings.TrimSpace(answer))
+			if answer != "l" && answer != "r" {
+				e.statusBar.SetMessage("Tag delete cancelled")
+				return
+			}
+			deleteRemote := answer == "r"
+			go func() {
+				_, err := e.diffTracker.DeleteTag(tag)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+					if e.screen != nil {
+						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					}
+					return
+				}
+				if deleteRemote {
+					_, err = e.diffTracker.DeleteRemoteTag(tag)
+					if err != nil {
+						e.statusBar.SetMessage(fmt.Sprintf("Local deleted, remote failed: %s", err.Error()))
+					} else {
+						e.statusBar.SetMessage(fmt.Sprintf("Deleted tag '%s' locally and from remote", tag))
+					}
+				} else {
+					e.statusBar.SetMessage(fmt.Sprintf("Deleted tag '%s' locally", tag))
+				}
+				e.graphRefresh()
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+			}()
+		})
 	})
 }
 

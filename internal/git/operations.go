@@ -100,6 +100,16 @@ func (d *DiffTracker) Push() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// PushTags pushes all local tags to the remote.
+func (d *DiffTracker) PushTags() (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "push", "--tags")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git push --tags: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // Pull pulls from the remote.
 func (d *DiffTracker) Pull() (string, error) {
 	cmd := exec.Command("git", "-C", d.repoRoot, "pull")
@@ -120,12 +130,46 @@ func (d *DiffTracker) Tag(name, hash string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// DeleteTag deletes a tag.
+// DeleteTag deletes a local tag.
 func (d *DiffTracker) DeleteTag(name string) (string, error) {
 	cmd := exec.Command("git", "-C", d.repoRoot, "tag", "-d", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git tag -d: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DeleteRemoteTag deletes a tag from the remote.
+func (d *DiffTracker) DeleteRemoteTag(name string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "push", "origin", "--delete", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git push --delete tag: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DeleteBranch deletes a local branch. force=true uses -D (force delete).
+func (d *DiffTracker) DeleteBranch(name string, force bool) (string, error) {
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	cmd := exec.Command("git", "-C", d.repoRoot, "branch", flag, name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git branch %s: %s", flag, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DeleteRemoteBranch deletes a branch from the remote.
+func (d *DiffTracker) DeleteRemoteBranch(name string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "push", "origin", "--delete", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git push --delete branch: %s", strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -178,6 +222,23 @@ func (d *DiffTracker) StashPop() (string, error) {
 		return "", fmt.Errorf("git stash pop: %s", strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// ListTags returns all local tag names, newest first.
+func (d *DiffTracker) ListTags() ([]string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "tag", "-l", "--sort=-version:refname")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git tag -l: %w", err)
+	}
+	var tags []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			tags = append(tags, line)
+		}
+	}
+	return tags, nil
 }
 
 // ListBranches returns local branch names.
