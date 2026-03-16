@@ -86,8 +86,7 @@ func LoadCommits(repoRoot string, maxCount int) ([]Commit, error) {
 
 // ShowCommit returns the full git show output for a commit.
 func ShowCommit(repoRoot, hash string) (string, error) {
-	cmd := exec.Command("git", "-C", repoRoot, "show",
-		"--stat", "--format=commit %H%nAuthor: %an <%ae>%nDate:   %ai%n%n    %s%n%w(0,4,4)%b", hash)
+	cmd := exec.Command("git", "-C", repoRoot, "show", "--stat", "--patch", hash)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git show: %w", err)

@@ -114,9 +114,10 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 }
 
 func (cv *CommitDetailView) drawLine(screen tcell.Screen, x, y, maxWidth int, text string, style tcell.Style) {
+	endX := x + maxWidth
 	for _, ch := range text {
 		w := runewidth.RuneWidth(ch)
-		if x+w > x+maxWidth {
+		if x+w > endX {
 			break
 		}
 		screen.SetContent(x, y, ch, nil, style)

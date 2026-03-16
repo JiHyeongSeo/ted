@@ -998,6 +998,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
 	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
+	e.keymap.Bind("ctrl+shift+g", "git.graph", "")
 	// Load additional keybindings from JSON config file
 	configDir := config.DefaultUserConfigDir()
 	// Try project-local config first, then user config
