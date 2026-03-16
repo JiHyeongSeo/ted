@@ -14,21 +14,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            goos: linux
             goarch: amd64
             artifact: ted_linux_amd64
           - os: ubuntu-24.04-arm
-            goos: linux
             goarch: arm64
             artifact: ted_linux_arm64
-          - os: macos-13
-            goos: darwin
-            goarch: amd64
-            artifact: ted_darwin_amd64
-          - os: macos-latest
-            goos: darwin
-            goarch: arm64
-            artifact: ted_darwin_arm64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -41,7 +31,6 @@ jobs:
       - name: Build
         env:
           CGO_ENABLED: 1
-          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           go build -ldflags "-s -w" -o ted ./cmd/ted
