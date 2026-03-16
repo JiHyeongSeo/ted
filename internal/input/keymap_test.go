@@ -148,3 +148,46 @@ func TestKeymapF12(t *testing.T) {
 		t.Errorf("expected lsp.goToDefinition, got %q (result=%v)", cmd, result)
 	}
 }
+
+func TestKeymapBindingsForCommand(t *testing.T) {
+	km := NewKeymap()
+	km.Bind("ctrl+s", "file.save", "")
+	km.Bind("ctrl+shift+s", "file.saveAs", "")
+	km.Bind("f2", "file.save", "") // additional binding for file.save
+
+	bindings := km.BindingsForCommand("file.save")
+	if len(bindings) != 2 {
+		t.Errorf("expected 2 bindings for file.save, got %d", len(bindings))
+	}
+
+	// Check that we got Ctrl+S (formatted)
+	found := false
+	for _, b := range bindings {
+		if b == "Ctrl+S" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected to find Ctrl+S in bindings, got %v", bindings)
+	}
+
+	// Check command with no bindings
+	bindings = km.BindingsForCommand("nonexistent")
+	if len(bindings) != 0 {
+		t.Errorf("expected 0 bindings for nonexistent command, got %d", len(bindings))
+	}
+}
+
+func TestKeymapBindingsForCommandChord(t *testing.T) {
+	km := NewKeymap()
+	km.Bind("ctrl+k ctrl+i", "lsp.hover", "")
+
+	bindings := km.BindingsForCommand("lsp.hover")
+	if len(bindings) != 1 {
+		t.Fatalf("expected 1 binding, got %d", len(bindings))
+	}
+	if bindings[0] != "Ctrl+K Ctrl+I" {
+		t.Errorf("expected 'Ctrl+K Ctrl+I', got %q", bindings[0])
+	}
+}

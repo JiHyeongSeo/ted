@@ -138,6 +138,80 @@ func (km *Keymap) Bindings() []Binding {
 	return km.bindings
 }
 
+// BindingsForCommand returns all key strings bound to the given command.
+// Returns an empty slice if no bindings are found.
+// The returned strings are formatted for display (e.g., "Ctrl+S").
+func (km *Keymap) BindingsForCommand(command string) []string {
+	var results []string
+	for _, b := range km.bindings {
+		if b.Command == command {
+			// Build key string from the Keys array
+			var keyParts []string
+			for _, k := range b.Keys {
+				keyParts = append(keyParts, formatKeyForDisplay(k.String()))
+			}
+			results = append(results, strings.Join(keyParts, " "))
+		}
+	}
+	return results
+}
+
+// formatKeyForDisplay formats a key string for user-friendly display.
+// Converts "ctrl+s" to "Ctrl+S", "enter" to "Enter", etc.
+func formatKeyForDisplay(key string) string {
+	parts := strings.Split(key, "+")
+	for i, part := range parts {
+		switch strings.ToLower(part) {
+		case "ctrl":
+			parts[i] = "Ctrl"
+		case "shift":
+			parts[i] = "Shift"
+		case "alt":
+			parts[i] = "Alt"
+		case "enter":
+			parts[i] = "Enter"
+		case "esc", "escape":
+			parts[i] = "Esc"
+		case "tab":
+			parts[i] = "Tab"
+		case "backspace":
+			parts[i] = "Backspace"
+		case "delete":
+			parts[i] = "Del"
+		case "insert":
+			parts[i] = "Ins"
+		case "home":
+			parts[i] = "Home"
+		case "end":
+			parts[i] = "End"
+		case "pgup", "pageup":
+			parts[i] = "PgUp"
+		case "pgdn", "pagedown":
+			parts[i] = "PgDn"
+		case "up":
+			parts[i] = "Up"
+		case "down":
+			parts[i] = "Down"
+		case "left":
+			parts[i] = "Left"
+		case "right":
+			parts[i] = "Right"
+		case "space":
+			parts[i] = "Space"
+		default:
+			// For F-keys and single letters, uppercase them
+			if strings.HasPrefix(strings.ToLower(part), "f") && len(part) > 1 {
+				parts[i] = strings.ToUpper(part)
+			} else if len(part) == 1 {
+				parts[i] = strings.ToUpper(part)
+			} else {
+				parts[i] = part
+			}
+		}
+	}
+	return strings.Join(parts, "+")
+}
+
 func eventToKeyEvent(ev *tcell.EventKey) KeyEvent {
 	key := ev.Key()
 	r := ev.Rune()
