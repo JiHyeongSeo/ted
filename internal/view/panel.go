@@ -31,7 +31,6 @@ func NewBottomPanel(theme *syntax.Theme) *BottomPanel {
 		tabs: []PanelTab{
 			{Name: "Problems"},
 			{Name: "Output"},
-			{Name: "Terminal"},
 		},
 	}
 }
