@@ -128,11 +128,21 @@ func (gv *GraphView) Render(screen tcell.Screen) {
 		}
 	}
 
-	// Draw focus indicator — left border bar
+	// Draw focus indicator — top-right key hints
 	if gv.IsFocused() {
-		focusStyle := defaultStyle.Background(tcell.ColorSteelBlue)
-		for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {
-			screen.SetContent(bounds.X, y, ' ', nil, focusStyle)
+		hints := " c:commit a:stage p:push P:pull t:tag m:merge r:rebase s:stash S:pop "
+		hintStyle := defaultStyle.Foreground(tcell.ColorGray)
+		hx := bounds.X + bounds.Width - len(hints)
+		if hx < bounds.X {
+			hx = bounds.X
+		}
+		hy := bounds.Y
+		for _, ch := range hints {
+			if hx >= bounds.X+bounds.Width {
+				break
+			}
+			screen.SetContent(hx, hy, ch, nil, hintStyle)
+			hx++
 		}
 	}
 

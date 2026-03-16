@@ -83,6 +83,103 @@ func (d *DiffTracker) Pull() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Tag creates a tag on the given commit hash.
+func (d *DiffTracker) Tag(name, hash string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "tag", name, hash)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git tag: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DeleteTag deletes a tag.
+func (d *DiffTracker) DeleteTag(name string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "tag", "-d", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git tag -d: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Merge merges the given branch into the current branch.
+func (d *DiffTracker) Merge(branch string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "merge", branch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git merge: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Rebase rebases the current branch onto the given target.
+func (d *DiffTracker) Rebase(target string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "rebase", target)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rebase: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// RebaseAbort aborts an in-progress rebase.
+func (d *DiffTracker) RebaseAbort() (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "rebase", "--abort")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rebase --abort: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// Stash stashes the current working tree changes.
+func (d *DiffTracker) Stash() (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "stash")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git stash: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// StashPop pops the most recent stash.
+func (d *DiffTracker) StashPop() (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "stash", "pop")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git stash pop: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListBranches returns local branch names.
+func (d *DiffTracker) ListBranches() ([]string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "branch", "--format=%(refname:short)")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git branch: %w", err)
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+// CurrentBranch returns the current branch name.
+func (d *DiffTracker) CurrentBranch() string {
+	cmd := exec.Command("git", "-C", d.repoRoot, "branch", "--show-current")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // RepoRoot returns the repository root path.
 func (d *DiffTracker) RepoRoot() string {
 	return d.repoRoot
