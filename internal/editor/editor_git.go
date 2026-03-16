@@ -172,6 +172,8 @@ func (e *Editor) gitOpenGraph() {
 	for i, tab := range e.tabs.All() {
 		if tab.Kind == TabKindGraph {
 			e.tabs.SetActive(i)
+			e.sidebarFocus = false
+			e.panelFocus = false
 			e.syncViewToTab()
 			return
 		}
@@ -199,6 +201,22 @@ func (e *Editor) gitOpenGraph() {
 		e.commitDetailView.SetCommit(commit, files)
 	})
 
+	// Set up Enter callback — show commit diff in panel
+	e.graphView.SetOnEnter(func(commit *git.Commit) {
+		if commit == nil {
+			return
+		}
+		output, err := git.ShowCommit(e.diffTracker.RepoRoot(), commit.Hash)
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+			return
+		}
+		lines := strings.Split(output, "\n")
+		e.panel.SetContent(1, lines) // Output tab
+		e.panel.SetActiveTab(1)
+		e.layout.SetPanelVisible(true)
+	})
+
 	// Select first commit
 	if len(rows) > 0 {
 		first := rows[0].Commit
@@ -206,9 +224,11 @@ func (e *Editor) gitOpenGraph() {
 		e.commitDetailView.SetCommit(first, files)
 	}
 
-	// Open tab
+	// Open tab and focus graph
 	e.tabs.Open(buffer.NewBuffer(""), "graph")
 	e.tabs.Active().Kind = TabKindGraph
+	e.sidebarFocus = false
+	e.panelFocus = false
 	e.syncViewToTab()
 	e.statusBar.SetMessage(fmt.Sprintf("Git Graph: %d commits", len(commits)))
 }
