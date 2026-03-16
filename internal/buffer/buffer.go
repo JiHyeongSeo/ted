@@ -25,8 +25,21 @@ func NewBuffer(content string) *Buffer {
 	return b
 }
 
+// LargeFileThreshold is the size above which files are opened via mmap.
+const LargeFileThreshold = 10 * 1024 * 1024 // 10MB
+
 // OpenFile creates a buffer by reading a file.
 func OpenFile(path string) (*Buffer, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+
+	if info.Size() >= LargeFileThreshold {
+		return openLargeFile(path)
+	}
+
+	// Small file: existing behavior
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -36,6 +49,23 @@ func OpenFile(path string) (*Buffer, error) {
 	if !utf8.Valid(data) {
 		b.ReadOnly = true
 	}
+	b.undo.MarkSaved()
+	return b, nil
+}
+
+func openLargeFile(path string) (*Buffer, error) {
+	mc, err := NewMmapContent(path)
+	if err != nil {
+		return nil, err
+	}
+
+	pt := NewPieceTable(mc)
+	b := &Buffer{
+		pt:   pt,
+		undo: NewUndoManager(pt),
+		path: path,
+	}
+	b.rebuildLineIndex()
 	b.undo.MarkSaved()
 	return b, nil
 }
@@ -128,6 +158,16 @@ func (b *Buffer) Path() string {
 // SetPath sets the file path for the buffer.
 func (b *Buffer) SetPath(path string) {
 	b.path = path
+}
+
+// Close releases resources held by the buffer (e.g., mmap).
+func (b *Buffer) Close() error {
+	return b.pt.Close()
+}
+
+// IsLarge returns true if the buffer content is at or above the large file threshold.
+func (b *Buffer) IsLarge() bool {
+	return b.pt.Length() >= LargeFileThreshold
 }
 
 // Save writes the buffer content to its file path.
@@ -252,12 +292,18 @@ func (b *Buffer) lineAtOffset(offset int) int {
 }
 
 // rebuildLineIndex recalculates line start offsets from the current content.
+// It iterates over pieces directly to avoid materializing the entire content
+// into a single string, which is important for large mmap-backed files.
 func (b *Buffer) rebuildLineIndex() {
-	text := b.pt.Text()
 	b.lineOffsets = []int{0}
-	for i := 0; i < len(text); i++ {
-		if text[i] == '\n' {
-			b.lineOffsets = append(b.lineOffsets, i+1)
+	pos := 0
+	for _, p := range b.pt.pieces {
+		data := b.pt.pieceBytes(p)
+		for i, ch := range data {
+			if ch == '\n' {
+				b.lineOffsets = append(b.lineOffsets, pos+i+1)
+			}
 		}
+		pos += p.length
 	}
 }
