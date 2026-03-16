@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
@@ -116,31 +117,40 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 
 	for i := cv.scrollY; i < len(cv.files) && y < bounds.Y+bounds.Height; i++ {
 		line := cv.files[i]
+
+		// Parse status and path from "M\tpath" or "??\tpath" format
+		status := ""
+		displayPath := line
+		if idx := strings.IndexByte(line, '\t'); idx >= 0 {
+			status = line[:idx]
+			displayPath = line[idx+1:]
+		}
+
 		style := defaultStyle
-		if len(line) > 0 {
-			switch line[0] {
-			case 'A':
-				style = addedStyle
-			case 'D':
-				style = removedStyle
-			case 'M':
-				style = modifiedStyle
-			}
+		switch status {
+		case "A":
+			style = addedStyle
+		case "D":
+			style = removedStyle
+		case "M", "MM":
+			style = modifiedStyle
+		case "??":
+			style = addedStyle // untracked = new
 		}
 
 		// Highlight selected file
 		if i == cv.selectedIdx {
-			// Fill row with selected background
 			for x := bounds.X; x < bounds.X+bounds.Width; x++ {
 				screen.SetContent(x, y, ' ', nil, selectedBg)
 			}
 			fg, _, _ := style.Decompose()
 			style = selectedBg.Foreground(fg)
-			// Draw selection indicator
 			screen.SetContent(bounds.X+1, y, '▸', nil, style)
 		}
 
-		cv.drawLine(screen, bounds.X+3, y, bounds.Width-3, line, style)
+		// Draw: "  M  path/to/file" with clear spacing
+		displayLine := fmt.Sprintf("%-2s  %s", status, displayPath)
+		cv.drawLine(screen, bounds.X+3, y, bounds.Width-3, displayLine, style)
 		y++
 	}
 }
