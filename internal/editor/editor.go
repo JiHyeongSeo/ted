@@ -152,6 +152,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	// Wire sidebar callback
 	e.sidebar.SetOnFileOpen(func(path string) {
 		e.OpenFile(path)
+		e.sidebarFocus = false
 	})
 
 	// Wire panel click callback — navigate to search result / diagnostic
