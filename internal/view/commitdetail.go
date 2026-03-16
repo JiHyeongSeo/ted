@@ -72,10 +72,28 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 		}
 	}
 
-	// Draw separator line at top
-	sepStyle := defaultStyle.Foreground(tcell.ColorDarkCyan)
+	// Draw separator line at top — highlight when focused
+	sepColor := tcell.ColorDarkCyan
+	if cv.IsFocused() {
+		sepColor = tcell.ColorSteelBlue
+	}
+	sepStyle := defaultStyle.Foreground(sepColor)
 	for x := bounds.X; x < bounds.X+bounds.Width; x++ {
 		screen.SetContent(x, bounds.Y, '─', nil, sepStyle)
+	}
+
+	// Draw focus indicator label on separator
+	if cv.IsFocused() {
+		label := " Files (↑↓ Enter:diff  Esc:back) "
+		lx := bounds.X + 1
+		labelStyle := defaultStyle.Foreground(tcell.ColorWhite).Background(tcell.ColorSteelBlue).Bold(true)
+		for _, ch := range label {
+			if lx >= bounds.X+bounds.Width-1 {
+				break
+			}
+			screen.SetContent(lx, bounds.Y, ch, nil, labelStyle)
+			lx++
+		}
 	}
 
 	if cv.commit == nil {
