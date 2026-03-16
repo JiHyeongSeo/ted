@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -31,19 +32,28 @@ type DiffLine struct {
 // DiffView renders a side-by-side diff of two texts.
 type DiffView struct {
 	BaseComponent
-	theme   *syntax.Theme
-	lines   []DiffLine
-	scrollY int
-	title   string // e.g. filename
+	theme       *syntax.Theme
+	highlighter *syntax.Highlighter
+	lines       []DiffLine
+	scrollY     int
+	title       string // e.g. filename
 }
 
 // NewDiffView creates a DiffView from old and new text.
-func NewDiffView(theme *syntax.Theme, oldText, newText, title string) *DiffView {
+// filePath is used to detect the language for syntax highlighting.
+func NewDiffView(theme *syntax.Theme, oldText, newText, title, filePath string) *DiffView {
 	dv := &DiffView{
 		theme: theme,
 		title: title,
 	}
 	dv.lines = computeSideBySide(oldText, newText)
+
+	// Detect language from file extension for syntax highlighting
+	lang := detectLangFromPath(filePath)
+	if lang != "" && lang != "text" {
+		dv.highlighter = syntax.NewHighlighter(theme, lang)
+	}
+
 	return dv
 }
 
@@ -136,14 +146,14 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 		}
 
 		// Draw left side
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle)
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle, dl.Kind)
 
 		// Draw right side
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle, dl.Kind)
 	}
 }
 
-func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style) {
+func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style, kind DiffLineKind) {
 	// Clear the side
 	for x := startX; x < startX+lineNumW+textW; x++ {
 		screen.SetContent(x, y, ' ', nil, textStyle)
@@ -166,9 +176,16 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		}
 	}
 
+	// Get syntax tokens for this line
+	var tokens []syntax.Token
+	if dv.highlighter != nil && text != "" {
+		tokens = dv.highlighter.HighlightLine(text)
+	}
+
 	// Text content
 	tx := startX + lineNumW
 	maxX := tx + textW
+	runeIdx := 0
 	for _, ch := range text {
 		w := runewidth.RuneWidth(ch)
 		if ch == '\t' {
@@ -177,13 +194,38 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 				screen.SetContent(tx, y, ' ', nil, textStyle)
 				tx++
 			}
+			runeIdx++
 			continue
 		}
 		if tx+w > maxX {
 			break
 		}
-		screen.SetContent(tx, y, ch, nil, textStyle)
+
+		style := textStyle
+		// Apply syntax highlighting: use token foreground but keep diff background
+		if len(tokens) > 0 && kind == DiffEqual {
+			for _, token := range tokens {
+				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
+					style = dv.highlighter.StyleForToken(token.Type)
+					break
+				}
+			}
+		} else if len(tokens) > 0 {
+			// For diff lines, apply token foreground but preserve diff background
+			for _, token := range tokens {
+				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
+					tokenStyle := dv.highlighter.StyleForToken(token.Type)
+					fg, _, _ := tokenStyle.Decompose()
+					_, bg, _ := textStyle.Decompose()
+					style = tcell.StyleDefault.Foreground(fg).Background(bg)
+					break
+				}
+			}
+		}
+
+		screen.SetContent(tx, y, ch, nil, style)
 		tx += w
+		runeIdx++
 	}
 }
 
@@ -266,6 +308,37 @@ func (dv *DiffView) handleMouse(ev *tcell.EventMouse) bool {
 		return true
 	}
 	return false
+}
+
+// detectLangFromPath returns a language identifier from a file path extension.
+func detectLangFromPath(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".js":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp", ".cc":
+		return "cpp"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".sh", ".bash":
+		return "bash"
+	case ".yaml", ".yml":
+		return "yaml"
+	default:
+		return "text"
+	}
 }
 
 // computeSideBySide builds side-by-side diff lines using a simple LCS-based diff.
