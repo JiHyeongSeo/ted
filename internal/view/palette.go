@@ -164,12 +164,49 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	startX := bounds.X + (bounds.Width-paletteWidth)/2
 	startY := bounds.Y + 2
 
-	bgStyle := p.theme.UIStyle("panel")
-	fgStyle := p.theme.UIStyle("default")
-	selStyle := p.theme.UIStyle("selection")
+	// Get styles, handle nil theme
+	var bgStyle, fgStyle, selStyle tcell.Style
+	if p.theme != nil {
+		bgStyle = p.theme.UIStyle("panel")
+		fgStyle = p.theme.UIStyle("default")
+		selStyle = p.theme.UIStyle("selection")
+	} else {
+		bgStyle = tcell.StyleDefault.Background(tcell.ColorBlack)
+		fgStyle = tcell.StyleDefault
+		selStyle = tcell.StyleDefault.Reverse(true)
+	}
 
-	// Draw input row
-	for x := startX; x < startX+paletteWidth; x++ {
+	// Draw shadow (1px offset, black background)
+	shadowStyle := tcell.StyleDefault.Background(tcell.ColorBlack)
+	for x := startX + 1; x <= startX+paletteWidth; x++ {
+		screen.SetContent(x, startY+paletteHeight, ' ', nil, shadowStyle)
+	}
+	for y := startY + 1; y <= startY+paletteHeight; y++ {
+		screen.SetContent(startX+paletteWidth, y, ' ', nil, shadowStyle)
+	}
+
+	// Draw border using box-drawing chars
+	borderStyle := bgStyle.Foreground(tcell.ColorGray)
+	// Top
+	screen.SetContent(startX, startY-1, '┌', nil, borderStyle)
+	for x := startX + 1; x < startX+paletteWidth-1; x++ {
+		screen.SetContent(x, startY-1, '─', nil, borderStyle)
+	}
+	screen.SetContent(startX+paletteWidth-1, startY-1, '┐', nil, borderStyle)
+	// Sides
+	for y := startY; y < startY+paletteHeight; y++ {
+		screen.SetContent(startX, y, '│', nil, borderStyle)
+		screen.SetContent(startX+paletteWidth-1, y, '│', nil, borderStyle)
+	}
+	// Bottom
+	screen.SetContent(startX, startY+paletteHeight, '└', nil, borderStyle)
+	for x := startX + 1; x < startX+paletteWidth-1; x++ {
+		screen.SetContent(x, startY+paletteHeight, '─', nil, borderStyle)
+	}
+	screen.SetContent(startX+paletteWidth-1, startY+paletteHeight, '┘', nil, borderStyle)
+
+	// Draw input row (inside border)
+	for x := startX + 1; x < startX+paletteWidth-1; x++ {
 		screen.SetContent(x, startY, ' ', nil, bgStyle)
 	}
 
@@ -186,10 +223,10 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 		prompt = p.query
 	}
 
-	x := startX + 1
+	x := startX + 2
 	for _, ch := range prompt {
 		w := runewidth.RuneWidth(ch)
-		if x+w >= startX+paletteWidth-1 {
+		if x+w >= startX+paletteWidth-2 {
 			break
 		}
 		screen.SetContent(x, startY, ch, nil, fgStyle)
@@ -200,9 +237,9 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	if p.query == "" {
 		hint := "Search files... (> for commands, : for line)"
 		hintStyle := bgStyle.Foreground(tcell.ColorDarkGray)
-		hx := startX + 1
+		hx := startX + 2
 		for _, ch := range hint {
-			if hx >= startX+paletteWidth-1 {
+			if hx >= startX+paletteWidth-2 {
 				break
 			}
 			screen.SetContent(hx, startY, ch, nil, hintStyle)
@@ -227,7 +264,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 				style = selStyle
 			}
 
-			for x := startX; x < startX+paletteWidth; x++ {
+			for x := startX + 1; x < startX+paletteWidth-1; x++ {
 				screen.SetContent(x, y, ' ', nil, style)
 			}
 
@@ -237,7 +274,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 			highlightStyle := style.Bold(true).Foreground(tcell.ColorYellow)
 
 			// Draw "  " prefix
-			x := startX + 1
+			x := startX + 2
 			screen.SetContent(x, y, ' ', nil, style)
 			x++
 			screen.SetContent(x, y, ' ', nil, style)
@@ -246,7 +283,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 			// Draw label with highlights
 			for ci, ch := range label {
 				w := runewidth.RuneWidth(ch)
-				if x+w >= startX+paletteWidth-1 {
+				if x+w >= startX+paletteWidth-2 {
 					break
 				}
 				s := style
@@ -263,7 +300,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 				x += 2 // gap
 				for _, ch := range desc {
 					w := runewidth.RuneWidth(ch)
-					if x+w >= startX+paletteWidth-1 {
+					if x+w >= startX+paletteWidth-2 {
 						break
 					}
 					screen.SetContent(x, y, ch, nil, descStyle)
@@ -275,7 +312,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 			if kb := p.filtered[itemIdx].Keybinding; kb != "" {
 				kbStyle := style.Foreground(tcell.ColorDarkCyan)
 				kbWidth := runewidth.StringWidth(kb)
-				kbX := startX + paletteWidth - kbWidth - 2
+				kbX := startX + paletteWidth - kbWidth - 3
 				if kbX > x+1 { // only if there's room
 					for _, ch := range kb {
 						screen.SetContent(kbX, y, ch, nil, kbStyle)
