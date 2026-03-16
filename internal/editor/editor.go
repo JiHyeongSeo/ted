@@ -404,11 +404,17 @@ func (e *Editor) Run(screen tcell.Screen) error {
 		for range fetchTicker.C {
 			if e.diffTracker != nil && e.running {
 				e.diffTracker.Fetch()
+				// Update graph rows in-place (preserve scroll/selection)
 				if e.graphView != nil {
-					e.graphRefresh()
-					if e.screen != nil {
-						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					repoRoot := e.diffTracker.RepoRoot()
+					commits, err := git.LoadCommits(repoRoot, 200)
+					if err == nil {
+						rows := git.LayoutGraph(commits)
+						e.graphView.SetRows(rows)
 					}
+				}
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 				}
 			}
 		}

@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -46,6 +47,17 @@ func (gv *GraphView) SetOnSelect(fn func(commit *git.Commit)) {
 
 func (gv *GraphView) SelectedIndex() int { return gv.selectedIdx }
 func (gv *GraphView) ScrollY() int       { return gv.scrollY }
+
+// SetRows replaces the graph rows while preserving scroll/selection position.
+func (gv *GraphView) SetRows(rows []git.GraphRow) {
+	gv.rows = rows
+	if gv.selectedIdx >= len(gv.rows) {
+		gv.selectedIdx = len(gv.rows) - 1
+	}
+	if gv.selectedIdx < 0 {
+		gv.selectedIdx = 0
+	}
+}
 
 func (gv *GraphView) SelectedCommit() *git.Commit {
 	if len(gv.rows) == 0 || gv.selectedIdx >= len(gv.rows) {
@@ -246,18 +258,55 @@ func (gv *GraphView) Render(screen tcell.Screen) {
 		screen.SetContent(x, y, ' ', nil, baseStyle)
 		x++
 
-		// Draw refs
+		// Draw refs with per-ref coloring
 		if len(row.Commit.Refs) > 0 {
-			rs := refStyle
+			parenStyle := refStyle
 			if idx == gv.selectedIdx {
-				rs = selectedStyle.Foreground(tcell.ColorGreen).Bold(true)
+				parenStyle = selectedStyle.Foreground(tcell.ColorGreen).Bold(true)
 			}
-			refText := "(" + joinRefs(row.Commit.Refs) + ") "
-			for _, ch := range refText {
-				if x >= msgEnd {
-					break
+			if x < msgEnd {
+				screen.SetContent(x, y, '(', nil, parenStyle)
+				x++
+			}
+			for ri, ref := range row.Commit.Refs {
+				// Pick color based on ref type
+				var rs tcell.Style
+				if strings.HasPrefix(ref, "tag:") {
+					rs = defaultStyle.Foreground(tcell.ColorGold).Bold(true)
+					if idx == gv.selectedIdx {
+						rs = selectedStyle.Foreground(tcell.ColorGold).Bold(true)
+					}
+				} else if strings.HasPrefix(ref, "HEAD") {
+					rs = defaultStyle.Foreground(tcell.ColorAqua).Bold(true)
+					if idx == gv.selectedIdx {
+						rs = selectedStyle.Foreground(tcell.ColorAqua).Bold(true)
+					}
+				} else {
+					rs = refStyle
+					if idx == gv.selectedIdx {
+						rs = selectedStyle.Foreground(tcell.ColorGreen).Bold(true)
+					}
 				}
-				screen.SetContent(x, y, ch, nil, rs)
+				for _, ch := range ref {
+					if x >= msgEnd {
+						break
+					}
+					screen.SetContent(x, y, ch, nil, rs)
+					x++
+				}
+				if ri < len(row.Commit.Refs)-1 && x+2 < msgEnd {
+					screen.SetContent(x, y, ',', nil, parenStyle)
+					x++
+					screen.SetContent(x, y, ' ', nil, parenStyle)
+					x++
+				}
+			}
+			if x < msgEnd {
+				screen.SetContent(x, y, ')', nil, parenStyle)
+				x++
+			}
+			if x < msgEnd {
+				screen.SetContent(x, y, ' ', nil, baseStyle)
 				x++
 			}
 		}
@@ -305,17 +354,6 @@ func (gv *GraphView) Render(screen tcell.Screen) {
 			ax++
 		}
 	}
-}
-
-func joinRefs(refs []string) string {
-	if len(refs) == 0 {
-		return ""
-	}
-	result := refs[0]
-	for i := 1; i < len(refs); i++ {
-		result += ", " + refs[i]
-	}
-	return result
 }
 
 func formatAge(t time.Time) string {
