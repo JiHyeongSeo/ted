@@ -25,10 +25,11 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 - **Diagnostics** — inline error/warning display
 
 ### Navigation
-- **Command Palette** (Ctrl+P) — fuzzy file search, `>` for commands, `:` for go-to-line
+- **Command Palette** (Ctrl+P) — fuzzy file search, `>` for commands, `:` for go-to-line, `z` for directory jump
+- **Z directory jump** — quick project switching using zsh-z history (`~/.z`)
 - **In-file search** (Ctrl+F) with highlight, Enter/Shift+Enter to cycle matches
 - **Find and replace** (Ctrl+H) with replace all support
-- **Project-wide search** (Ctrl+Shift+F) via ripgrep with results panel
+- **Live project search** (Ctrl+Shift+F) — results update as you type (fzf-like)
 - **Tab management** — Ctrl+Tab cycle, Alt+1~9 direct switch
 
 ### Layout
@@ -42,9 +43,10 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 ### Git Integration
 - **Git graph** — visual commit history with branch graph (like `git log --graph`)
 - **Stage/unstage** — per-file staging from graph view (Space/u)
-- **Commit, push, pull** — with confirmation dialogs
+- **Fetch, commit, push, pull** — with confirmation dialogs, auto-fetch every 60s
 - **Merge & rebase** — branch picker with confirmation
 - **Tag, stash, stash pop** — all from graph view
+- **Side-by-side diff** — syntax-highlighted with colored backgrounds
 - **Git blame** — inline display with author, date, summary; click hash to jump to graph
 - **Gutter diff markers** — added/modified/deleted line indicators
 
@@ -79,6 +81,7 @@ A lightweight terminal-based text editor built in Go with [tcell](https://github
 | Key | Action |
 |-----|--------|
 | c | Commit |
+| f | Fetch |
 | p | Push |
 | P | Pull |
 | a | Stage all |
