@@ -215,19 +215,44 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 				screen.SetContent(x, y, ' ', nil, style)
 			}
 
-			label := "  " + p.filtered[itemIdx].Label
-			if p.filtered[itemIdx].Description != "" {
-				label += "  " + p.filtered[itemIdx].Description
-			}
+			label := p.filtered[itemIdx].Label
+			desc := p.filtered[itemIdx].Description
+			matchSet := makePositionSet(p.filtered[itemIdx].MatchPositions)
+			highlightStyle := style.Bold(true).Foreground(tcell.ColorYellow)
 
+			// Draw "  " prefix
 			x := startX + 1
-			for _, ch := range label {
+			screen.SetContent(x, y, ' ', nil, style)
+			x++
+			screen.SetContent(x, y, ' ', nil, style)
+			x++
+
+			// Draw label with highlights
+			for ci, ch := range label {
 				w := runewidth.RuneWidth(ch)
 				if x+w >= startX+paletteWidth-1 {
 					break
 				}
-				screen.SetContent(x, y, ch, nil, style)
+				s := style
+				if matchSet[ci] {
+					s = highlightStyle
+				}
+				screen.SetContent(x, y, ch, nil, s)
 				x += w
+			}
+
+			// Draw description
+			if desc != "" {
+				descStyle := style.Foreground(tcell.ColorDarkGray)
+				x += 2 // gap
+				for _, ch := range desc {
+					w := runewidth.RuneWidth(ch)
+					if x+w >= startX+paletteWidth-1 {
+						break
+					}
+					screen.SetContent(x, y, ch, nil, descStyle)
+					x += w
+				}
 			}
 		}
 	}
@@ -353,6 +378,14 @@ func (p *CommandPalette) fuzzyFilter(items []PaletteItem, query string) {
 		item.MatchPositions = m.MatchedIndexes
 		p.filtered[i] = item
 	}
+}
+
+func makePositionSet(positions []int) map[int]bool {
+	set := make(map[int]bool, len(positions))
+	for _, p := range positions {
+		set[p] = true
+	}
+	return set
 }
 
 // SetBoundsFromScreen sets palette bounds based on total screen size.
