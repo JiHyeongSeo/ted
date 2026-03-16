@@ -56,8 +56,10 @@ type Editor struct {
 	pythonEnv     *PythonEnv // current Python environment
 	splitManager    *SplitManager
 	rightEditorView *view.EditorView // nil when not split
-	diffTracker *git.DiffTracker
-	pasteActive bool
+	diffTracker      *git.DiffTracker
+	graphView        *view.GraphView
+	commitDetailView *view.CommitDetailView
+	pasteActive      bool
 }
 
 // New creates a new Editor instance.
@@ -440,6 +442,14 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 
+	// Graph tab event handling
+	tab := e.tabs.Active()
+	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
+		if e.graphView.HandleEvent(ev) {
+			return
+		}
+	}
+
 	// Pass to active editor view for text input
 	av := e.activeEditorView()
 	if av != nil {
@@ -525,6 +535,19 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		}
 	}
 
+	// Graph view mouse events
+	tab := e.tabs.Active()
+	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
+		if e.graphView.HandleEvent(ev) {
+			return
+		}
+		if e.commitDetailView != nil {
+			if e.commitDetailView.HandleEvent(ev) {
+				return
+			}
+		}
+	}
+
 	// Editor area — click, scroll wheel, or hover
 	if e.editorView != nil {
 		eb := e.editorView.Bounds()
@@ -568,13 +591,15 @@ func (e *Editor) render() {
 		tabs := make([]view.Tab, e.tabs.Count())
 		for i, t := range e.tabs.All() {
 			title := ""
-			if t.Buffer.Path() != "" {
+			if t.Kind == TabKindGraph {
+				title = "⎇ Git Graph"
+			} else if t.Buffer.Path() != "" {
 				title = filepath.Base(t.Buffer.Path())
 			}
 			tabs[i] = view.Tab{
 				Title:    title,
 				FilePath: t.Buffer.Path(),
-				Dirty:    t.Buffer.IsDirty(),
+				Dirty:    t.Kind == TabKindFile && t.Buffer.IsDirty(),
 			}
 		}
 		e.tabBar.SetTabs(tabs, e.tabs.ActiveIndex())
@@ -620,10 +645,26 @@ func (e *Editor) render() {
 			e.rightEditorView.Render(e.screen)
 		}
 	} else {
-		if r, ok := regions["editor"]; ok && e.editorView != nil {
-			e.editorView.SetBounds(r)
-			e.editorView.SetFocused(true)
-			e.editorView.Render(e.screen)
+		if r, ok := regions["editor"]; ok {
+			tab := e.tabs.Active()
+			if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
+				graphHeight := r.Height * 7 / 10
+				detailHeight := r.Height - graphHeight
+
+				graphRect := types.Rect{X: r.X, Y: r.Y, Width: r.Width, Height: graphHeight}
+				detailRect := types.Rect{X: r.X, Y: r.Y + graphHeight, Width: r.Width, Height: detailHeight}
+
+				e.graphView.SetBounds(graphRect)
+				e.graphView.SetFocused(true)
+				e.graphView.Render(e.screen)
+
+				e.commitDetailView.SetBounds(detailRect)
+				e.commitDetailView.Render(e.screen)
+			} else if e.editorView != nil {
+				e.editorView.SetBounds(r)
+				e.editorView.SetFocused(true)
+				e.editorView.Render(e.screen)
+			}
 		}
 	}
 
@@ -716,6 +757,11 @@ func (e *Editor) render() {
 func (e *Editor) syncViewToTab() {
 	tab := e.tabs.Active()
 	if tab == nil {
+		e.editorView = nil
+		return
+	}
+
+	if tab.Kind == TabKindGraph {
 		e.editorView = nil
 		return
 	}
@@ -1110,6 +1156,8 @@ func (e *Editor) ExecuteCommand(name string) error {
 		e.gitPull()
 	case "git.blame":
 		e.gitToggleBlame()
+	case "git.graph":
+		e.gitOpenGraph()
 	case "python.selectEnv":
 		e.showPythonEnvSelector()
 	case "editor.quit":
@@ -1350,6 +1398,19 @@ func (e *Editor) closeCurrentTab() {
 	if tab == nil {
 		return
 	}
+
+	if tab.Kind == TabKindGraph {
+		e.graphView = nil
+		e.commitDetailView = nil
+		idx := e.tabs.ActiveIndex()
+		e.tabs.Close(idx)
+		if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
+			e.OpenEmpty()
+		}
+		e.syncViewToTab()
+		return
+	}
+
 	if tab.Buffer.IsDirty() {
 		e.statusBar.SetMessage("Unsaved changes! Save first or press Ctrl+Q to quit.")
 		return

@@ -196,6 +196,13 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 			return ctx.ExecuteCommand("git.blame")
 		},
 	})
+	reg.Register(&Command{
+		Name:        "git.graph",
+		Description: "Show git commit graph",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.graph")
+		},
+	})
 
 	// Split commands
 	reg.Register(&Command{

@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/seoji/ted/internal/buffer"
 	"github.com/seoji/ted/internal/git"
+	"github.com/seoji/ted/internal/view"
 )
 
 // gitShowStatus shows git status in the bottom panel.
@@ -157,6 +159,58 @@ func (e *Editor) gitPull() {
 			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 		}
 	}()
+}
+
+// gitOpenGraph opens or focuses the git graph tab.
+func (e *Editor) gitOpenGraph() {
+	if e.diffTracker == nil {
+		e.statusBar.SetMessage("Not a git repository")
+		return
+	}
+
+	// Check if graph tab already open
+	for i, tab := range e.tabs.All() {
+		if tab.Kind == TabKindGraph {
+			e.tabs.SetActive(i)
+			e.syncViewToTab()
+			return
+		}
+	}
+
+	// Load commits
+	commits, err := git.LoadCommits(e.diffTracker.RepoRoot(), 500)
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+
+	// Create graph views
+	rows := git.LayoutGraph(commits)
+	e.graphView = view.NewGraphView(e.theme, rows)
+	e.commitDetailView = view.NewCommitDetailView(e.theme)
+
+	// Set up selection callback
+	e.graphView.SetOnSelect(func(commit *git.Commit) {
+		if commit == nil {
+			e.commitDetailView.SetCommit(nil, nil)
+			return
+		}
+		files, _ := git.LoadChangedFiles(e.diffTracker.RepoRoot(), commit.Hash)
+		e.commitDetailView.SetCommit(commit, files)
+	})
+
+	// Select first commit
+	if len(rows) > 0 {
+		first := rows[0].Commit
+		files, _ := git.LoadChangedFiles(e.diffTracker.RepoRoot(), first.Hash)
+		e.commitDetailView.SetCommit(first, files)
+	}
+
+	// Open tab
+	e.tabs.Open(buffer.NewBuffer(""), "graph")
+	e.tabs.Active().Kind = TabKindGraph
+	e.syncViewToTab()
+	e.statusBar.SetMessage(fmt.Sprintf("Git Graph: %d commits", len(commits)))
 }
 
 // gitToggleBlame toggles git blame display.
