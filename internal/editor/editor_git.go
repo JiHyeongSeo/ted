@@ -351,8 +351,10 @@ func (e *Editor) graphGitPush() {
 				e.statusBar.SetMessage(err.Error())
 			} else if out != "" {
 				e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
+				e.graphRefresh()
 			} else {
 				e.statusBar.SetMessage("Pushed successfully")
+				e.graphRefresh()
 			}
 			if e.screen != nil {
 				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
@@ -373,8 +375,10 @@ func (e *Editor) graphGitPull() {
 			e.statusBar.SetMessage(err.Error())
 		} else if out != "" {
 			e.statusBar.SetMessage("Pulled: " + strings.Split(out, "\n")[0])
+			e.graphRefresh()
 		} else {
 			e.statusBar.SetMessage("Pulled successfully")
+			e.graphRefresh()
 		}
 		if e.screen != nil {
 			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
@@ -599,24 +603,6 @@ func (e *Editor) graphGitUnstageFile() {
 		}
 		e.sendGraphFileUpdate()
 	}()
-}
-
-// graphRefreshUncommitted refreshes the uncommitted file list in the detail view.
-func (e *Editor) graphRefreshUncommitted() {
-	if e.graphView == nil || e.commitDetailView == nil {
-		return
-	}
-	commit := e.graphView.SelectedCommit()
-	if commit != nil && commit.Hash == "uncommitted" {
-		entries, _ := e.diffTracker.Status()
-		var files []string
-		var staged []bool
-		for _, entry := range entries {
-			files = append(files, entry.Status+"\t"+entry.Path)
-			staged = append(staged, entry.Staged)
-		}
-		e.commitDetailView.UpdateFilesWithStaged(files, staged)
-	}
 }
 
 // sendGraphFileUpdate runs git status in the goroutine and sends results to main thread via channel.
