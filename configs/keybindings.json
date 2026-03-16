@@ -19,7 +19,7 @@
     { "key": "ctrl+k ctrl+i", "command": "lsp.hover" },
     { "key": "ctrl+tab", "command": "tab.next" },
     { "key": "ctrl+shift+tab", "command": "tab.previous" },
-    { "key": "alt+\\", "command": "split.vertical" },
+    { "key": "alt+/", "command": "split.vertical" },
     { "key": "alt+w", "command": "split.focus" },
     { "key": "alt+shift+w", "command": "split.close" }
   ]
