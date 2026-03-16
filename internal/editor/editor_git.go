@@ -694,12 +694,26 @@ func (e *Editor) gitToggleBlame() {
 		return
 	}
 
-	const blameWidth = 28
+	const blameWidth = 42
 	lines := make([]string, len(blameData))
 	for i, b := range blameData {
 		lines[i] = git.FormatBlameLine(b, blameWidth-1) // -1 for separator
 	}
 
-	e.editorView.SetBlame(lines, blameWidth)
-	e.statusBar.SetMessage("Blame: on")
+	e.editorView.SetBlameData(lines, blameData, blameWidth)
+	e.editorView.SetOnBlameClick(func(hash string) {
+		e.gitOpenGraphAtCommit(hash)
+	})
+	e.statusBar.SetMessage("Blame: on (click hash → graph)")
+}
+
+// gitOpenGraphAtCommit opens the git graph and scrolls to the given commit hash.
+func (e *Editor) gitOpenGraphAtCommit(shortHash string) {
+	// Open graph first
+	e.gitOpenGraph()
+
+	// Find and select the commit matching this short hash
+	if e.graphView != nil {
+		e.graphView.SelectByShortHash(shortHash)
+	}
 }
