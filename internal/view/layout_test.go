@@ -217,3 +217,48 @@ func TestLayoutSizeSetters(t *testing.T) {
 		t.Errorf("Expected panel height 15, got %d", regions2["panel"].Height)
 	}
 }
+
+func TestLayoutSplit(t *testing.T) {
+	l := NewLayout()
+	l.SetSplitMode(true)
+	regions := l.Compute(80, 24)
+
+	left, ok := regions["editor.left"]
+	if !ok {
+		t.Fatal("expected editor.left region")
+	}
+	right, ok := regions["editor.right"]
+	if !ok {
+		t.Fatal("expected editor.right region")
+	}
+	sep, ok := regions["editor.separator"]
+	if !ok {
+		t.Fatal("expected editor.separator region")
+	}
+
+	if sep.Width != 1 {
+		t.Errorf("separator width should be 1, got %d", sep.Width)
+	}
+	if left.X+left.Width != sep.X {
+		t.Error("separator should be adjacent to left pane")
+	}
+	if sep.X+1 != right.X {
+		t.Error("right pane should be adjacent to separator")
+	}
+	// Heights should match
+	if left.Height != right.Height {
+		t.Errorf("pane heights should match: left=%d right=%d", left.Height, right.Height)
+	}
+}
+
+func TestLayoutNoSplit(t *testing.T) {
+	l := NewLayout()
+	regions := l.Compute(80, 24)
+
+	if _, ok := regions["editor"]; !ok {
+		t.Fatal("expected single editor region when not split")
+	}
+	if _, ok := regions["editor.left"]; ok {
+		t.Error("should not have editor.left when not split")
+	}
+}

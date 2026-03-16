@@ -10,6 +10,8 @@ type Layout struct {
 	panelVisible    bool
 	tabBarHeight    int
 	statusBarHeight int
+	splitMode       bool
+	splitRatio      float64 // 0.0-1.0, how much space left pane gets
 }
 
 // NewLayout creates a Layout with default sizes.
@@ -21,6 +23,8 @@ func NewLayout() *Layout {
 		panelVisible:    false,
 		tabBarHeight:    1,
 		statusBarHeight: 1,
+		splitMode:       false,
+		splitRatio:      0.5,
 	}
 }
 
@@ -30,6 +34,18 @@ func (l *Layout) SetSidebarWidth(w int)    { l.sidebarWidth = w }
 func (l *Layout) SetPanelHeight(h int)     { l.panelHeight = h }
 func (l *Layout) SidebarVisible() bool     { return l.sidebarVisible }
 func (l *Layout) PanelVisible() bool       { return l.panelVisible }
+
+func (l *Layout) SetSplitMode(v bool) { l.splitMode = v }
+func (l *Layout) SplitMode() bool     { return l.splitMode }
+func (l *Layout) SetSplitRatio(r float64) {
+	if r < 0.2 {
+		r = 0.2
+	}
+	if r > 0.8 {
+		r = 0.8
+	}
+	l.splitRatio = r
+}
 
 // Compute calculates bounds for all regions given total screen dimensions.
 // Returns a map of region name -> Rect.
@@ -81,7 +97,26 @@ func (l *Layout) Compute(width, height int) map[string]types.Rect {
 		regions["separator"] = types.Rect{X: sidebarWidth, Y: y, Width: 1, Height: middleHeight}
 	}
 
-	regions["editor"] = types.Rect{X: sidebarWidth + separatorWidth, Y: y, Width: editorWidth, Height: editorHeight}
+	if l.splitMode {
+		splitSepWidth := 1
+		leftWidth := int(float64(editorWidth-splitSepWidth) * l.splitRatio)
+		rightWidth := editorWidth - splitSepWidth - leftWidth
+		editorX := sidebarWidth + separatorWidth
+
+		regions["editor.left"] = types.Rect{
+			X: editorX, Y: y, Width: leftWidth, Height: editorHeight,
+		}
+		regions["editor.separator"] = types.Rect{
+			X: editorX + leftWidth, Y: y, Width: 1, Height: editorHeight,
+		}
+		regions["editor.right"] = types.Rect{
+			X: editorX + leftWidth + splitSepWidth, Y: y, Width: rightWidth, Height: editorHeight,
+		}
+	} else {
+		regions["editor"] = types.Rect{
+			X: sidebarWidth + separatorWidth, Y: y, Width: editorWidth, Height: editorHeight,
+		}
+	}
 
 	if panelHeight > 0 {
 		regions["panel"] = types.Rect{X: sidebarWidth + separatorWidth, Y: y + editorHeight, Width: editorWidth, Height: panelHeight}
