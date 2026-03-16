@@ -391,20 +391,30 @@ func (e *Editor) graphGitTag() {
 	})
 }
 
-// graphGitMerge prompts for branch name and merges.
+// graphGitMerge shows branch picker and merges selected branch.
 func (e *Editor) graphGitMerge() {
 	if e.diffTracker == nil {
 		return
 	}
+	branches, err := e.diffTracker.ListBranches()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
 	current := e.diffTracker.CurrentBranch()
-	e.inputBar.Show(fmt.Sprintf("Merge into %s from branch: ", current))
-	e.inputBar.SetOnSubmit(func(branch string) {
-		e.inputBar.Hide()
-		branch = strings.TrimSpace(branch)
-		if branch == "" {
-			e.statusBar.SetMessage("Merge aborted")
-			return
+	// Filter out current branch
+	var others []string
+	for _, b := range branches {
+		if b != current {
+			others = append(others, b)
 		}
+	}
+	if len(others) == 0 {
+		e.statusBar.SetMessage("No other branches to merge")
+		return
+	}
+	e.listPicker.Show(fmt.Sprintf("Merge into %s", current), others)
+	e.listPicker.SetOnSelect(func(branch string) {
 		out, err := e.diffTracker.Merge(branch)
 		if err != nil {
 			e.statusBar.SetMessage(err.Error())
@@ -414,22 +424,34 @@ func (e *Editor) graphGitMerge() {
 		e.statusBar.SetMessage("Merge: " + first)
 		e.graphRefresh()
 	})
+	e.listPicker.SetOnCancel(func() {
+		e.statusBar.SetMessage("Merge cancelled")
+	})
 }
 
-// graphGitRebase prompts for target and rebases.
+// graphGitRebase shows branch picker and rebases onto selected branch.
 func (e *Editor) graphGitRebase() {
 	if e.diffTracker == nil {
 		return
 	}
+	branches, err := e.diffTracker.ListBranches()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
 	current := e.diffTracker.CurrentBranch()
-	e.inputBar.Show(fmt.Sprintf("Rebase %s onto: ", current))
-	e.inputBar.SetOnSubmit(func(target string) {
-		e.inputBar.Hide()
-		target = strings.TrimSpace(target)
-		if target == "" {
-			e.statusBar.SetMessage("Rebase aborted")
-			return
+	var others []string
+	for _, b := range branches {
+		if b != current {
+			others = append(others, b)
 		}
+	}
+	if len(others) == 0 {
+		e.statusBar.SetMessage("No other branches to rebase onto")
+		return
+	}
+	e.listPicker.Show(fmt.Sprintf("Rebase %s onto", current), others)
+	e.listPicker.SetOnSelect(func(target string) {
 		out, err := e.diffTracker.Rebase(target)
 		if err != nil {
 			e.statusBar.SetMessage(err.Error())
@@ -438,6 +460,9 @@ func (e *Editor) graphGitRebase() {
 		first := strings.Split(out, "\n")[0]
 		e.statusBar.SetMessage("Rebase: " + first)
 		e.graphRefresh()
+	})
+	e.listPicker.SetOnCancel(func() {
+		e.statusBar.SetMessage("Rebase cancelled")
 	})
 }
 
@@ -484,6 +509,45 @@ func (e *Editor) graphGitStageAll() {
 	e.graphRefresh()
 }
 
+// graphGitUnstageFile unstages the currently selected file.
+func (e *Editor) graphGitUnstageFile() {
+	if e.diffTracker == nil || e.commitDetailView == nil {
+		return
+	}
+	fileLine := e.commitDetailView.SelectedFile()
+	if fileLine == "" {
+		return
+	}
+	parts := strings.SplitN(fileLine, "\t", 2)
+	if len(parts) < 2 {
+		return
+	}
+	filePath := parts[1]
+
+	if err := e.diffTracker.UnstageFile(filePath); err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	e.statusBar.SetMessage(fmt.Sprintf("Unstaged: %s", filePath))
+	e.graphRefreshUncommitted()
+}
+
+// graphRefreshUncommitted refreshes the uncommitted file list in the detail view.
+func (e *Editor) graphRefreshUncommitted() {
+	if e.graphView == nil || e.commitDetailView == nil {
+		return
+	}
+	commit := e.graphView.SelectedCommit()
+	if commit != nil && commit.Hash == "uncommitted" {
+		entries, _ := e.diffTracker.Status()
+		var files []string
+		for _, entry := range entries {
+			files = append(files, entry.Status+"\t"+entry.Path)
+		}
+		e.commitDetailView.SetCommit(commit, files)
+	}
+}
+
 // graphGitStageFile stages the currently selected file in the commit detail view.
 func (e *Editor) graphGitStageFile() {
 	if e.diffTracker == nil || e.commitDetailView == nil {
@@ -493,7 +557,6 @@ func (e *Editor) graphGitStageFile() {
 	if fileLine == "" {
 		return
 	}
-	// Parse "M\tpath" format
 	parts := strings.SplitN(fileLine, "\t", 2)
 	if len(parts) < 2 {
 		return
@@ -505,18 +568,7 @@ func (e *Editor) graphGitStageFile() {
 		return
 	}
 	e.statusBar.SetMessage(fmt.Sprintf("Staged: %s", filePath))
-	// Refresh the uncommitted file list
-	if e.graphView != nil {
-		commit := e.graphView.SelectedCommit()
-		if commit != nil && commit.Hash == "uncommitted" {
-			entries, _ := e.diffTracker.Status()
-			var files []string
-			for _, entry := range entries {
-				files = append(files, entry.Status+"\t"+entry.Path)
-			}
-			e.commitDetailView.SetCommit(commit, files)
-		}
-	}
+	e.graphRefreshUncommitted()
 }
 
 // gitToggleBlame toggles git blame display.

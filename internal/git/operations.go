@@ -44,6 +44,15 @@ func (d *DiffTracker) StageFile(path string) error {
 	return nil
 }
 
+// UnstageFile unstages a file.
+func (d *DiffTracker) UnstageFile(path string) error {
+	cmd := exec.Command("git", "-C", d.repoRoot, "reset", "HEAD", "--", path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git reset: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // StageAll stages all changes.
 func (d *DiffTracker) StageAll() error {
 	cmd := exec.Command("git", "-C", d.repoRoot, "add", "-A")

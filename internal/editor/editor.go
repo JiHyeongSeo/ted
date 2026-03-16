@@ -61,6 +61,7 @@ type Editor struct {
 	commitDetailView *view.CommitDetailView
 	graphDiffView    *view.DiffView // inline diff within graph tab
 	graphFocus       int            // 0=graph, 1=files, 2=diff
+	listPicker       *view.ListPicker
 	pasteActive      bool
 }
 
@@ -98,6 +99,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.palette = view.NewCommandPalette(theme)
 	e.searchBar = view.NewSearchBar(theme)
 	e.inputBar = view.NewInputBar(theme)
+	e.listPicker = view.NewListPicker(theme)
 	e.autocomplete = view.NewAutocompletePopup(theme)
 	e.tooltip = view.NewTooltip(theme)
 	e.recentFiles = LoadRecentFiles()
@@ -370,6 +372,12 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		return
 	}
 
+	// ListPicker gets priority when visible
+	if e.listPicker.IsVisible() {
+		e.listPicker.HandleEvent(ev)
+		return
+	}
+
 	// InputBar gets priority when visible (Ctrl+G)
 	if e.inputBar.IsVisible() {
 		e.inputBar.HandleEvent(ev)
@@ -462,9 +470,14 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				e.graphFocus = 0 // back to graph
 				return
 			}
-			// Stage selected file with 'a'
-			if ev.Key() == tcell.KeyRune && ev.Rune() == 'a' {
+			// Stage selected file with space or 'a'
+			if ev.Key() == tcell.KeyRune && (ev.Rune() == ' ' || ev.Rune() == 'a') {
 				e.graphGitStageFile()
+				return
+			}
+			// Unstage selected file with 'u'
+			if ev.Key() == tcell.KeyRune && ev.Rune() == 'u' {
+				e.graphGitUnstageFile()
 				return
 			}
 			if e.commitDetailView != nil && e.commitDetailView.HandleEvent(ev) {
@@ -808,9 +821,12 @@ func (e *Editor) render() {
 		}
 	}
 	if e.inputBar.IsVisible() {
-		// Center the input bar on screen
 		e.inputBar.SetBoundsFromScreen(w, h)
 		e.inputBar.Render(e.screen)
+	}
+	if e.listPicker.IsVisible() {
+		e.listPicker.SetBoundsFromScreen(w, h)
+		e.listPicker.Render(e.screen)
 	}
 	if e.autocomplete.IsVisible() {
 		e.autocomplete.Render(e.screen)
