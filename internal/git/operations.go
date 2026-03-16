@@ -21,11 +21,15 @@ func (d *DiffTracker) Status() ([]StatusEntry, error) {
 	}
 	var entries []StatusEntry
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if len(line) < 4 {
+		if len(line) < 3 {
 			continue
 		}
 		status := strings.TrimSpace(line[:2])
-		path := strings.TrimSpace(line[3:])
+		// Skip 2-char status, then trim any whitespace/tab separator
+		path := strings.TrimLeft(line[2:], " \t")
+		if path == "" {
+			continue
+		}
 		entries = append(entries, StatusEntry{Status: status, Path: path})
 	}
 	return entries, nil
