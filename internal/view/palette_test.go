@@ -197,3 +197,24 @@ func TestPaletteBackspace(t *testing.T) {
 		t.Errorf("expected 'a', got %q", p.Query())
 	}
 }
+
+func TestFuzzyFilterTracksMatchPositions(t *testing.T) {
+	p := NewCommandPalette(nil)
+	items := []PaletteItem{
+		{Label: "file.save", Description: "Save the current file"},
+		{Label: "file.open", Description: "Open a file"},
+		{Label: "search.find", Description: "Find text"},
+	}
+	p.SetItems(items)
+
+	p.query = ">fs"
+	p.mode = PaletteModeCommand
+	p.filterItems()
+
+	if len(p.filtered) == 0 {
+		t.Fatal("expected at least one match for 'fs'")
+	}
+	if len(p.filtered[0].MatchPositions) == 0 {
+		t.Error("expected match positions to be populated")
+	}
+}

@@ -22,10 +22,11 @@ const (
 
 // PaletteItem represents an item in the command palette.
 type PaletteItem struct {
-	Label       string
-	Description string
-	Command     string
-	FilePath    string // for file items
+	Label          string
+	Description    string
+	Command        string
+	FilePath       string // for file items
+	MatchPositions []int  // indices of matched characters in Label
 }
 
 // CommandPalette is a fuzzy-search overlay for commands and files.
@@ -348,7 +349,9 @@ func (p *CommandPalette) fuzzyFilter(items []PaletteItem, query string) {
 	matches := fuzzy.Find(query, labels)
 	p.filtered = make([]PaletteItem, len(matches))
 	for i, m := range matches {
-		p.filtered[i] = items[m.Index]
+		item := items[m.Index]
+		item.MatchPositions = m.MatchedIndexes
+		p.filtered[i] = item
 	}
 }
 
