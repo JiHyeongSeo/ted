@@ -19,6 +19,7 @@ const (
 	PaletteModeCommand                    // ">" prefix: command search
 	PaletteModeGoLine                     // ":" prefix: go to line
 	PaletteModeBuffer                     // "#" prefix: switch open buffer
+	PaletteModeZDir                       // "z " prefix: z directory jump
 )
 
 // PaletteItem represents an item in the command palette.
@@ -38,6 +39,7 @@ type CommandPalette struct {
 	commandItems []PaletteItem
 	fileItems    []PaletteItem
 	bufferItems  []PaletteItem
+	zDirItems    []PaletteItem
 	filtered     []PaletteItem
 	query        string
 	mode         PaletteMode
@@ -47,6 +49,7 @@ type CommandPalette struct {
 	onFileOpen   func(path string)
 	onBufferOpen func(path string)
 	onGoToLine   func(line int)
+	onDirOpen    func(path string)
 	onDismiss    func()
 }
 
@@ -96,6 +99,16 @@ func (p *CommandPalette) SetOnBufferOpen(fn func(path string)) {
 // SetOnGoToLine sets the callback for go-to-line mode.
 func (p *CommandPalette) SetOnGoToLine(fn func(line int)) {
 	p.onGoToLine = fn
+}
+
+// SetZDirItems sets the available z directory items.
+func (p *CommandPalette) SetZDirItems(items []PaletteItem) {
+	p.zDirItems = items
+}
+
+// SetOnDirOpen sets the callback when a z directory is selected.
+func (p *CommandPalette) SetOnDirOpen(fn func(path string)) {
+	p.onDirOpen = fn
 }
 
 // SetOnDismiss sets the callback when the palette is dismissed.
@@ -219,6 +232,8 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 		prompt = ":" + strings.TrimPrefix(p.query, ":")
 	case PaletteModeBuffer:
 		prompt = "# " + strings.TrimPrefix(p.query, "#")
+	case PaletteModeZDir:
+		prompt = "z " + strings.TrimPrefix(p.query, "z ")
 	default:
 		prompt = p.query
 	}
@@ -237,7 +252,8 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	showHint := p.query == "" ||
 		(p.mode == PaletteModeCommand && strings.TrimPrefix(p.query, ">") == "") ||
 		(p.mode == PaletteModeBuffer && strings.TrimPrefix(p.query, "#") == "") ||
-		(p.mode == PaletteModeGoLine && strings.TrimPrefix(p.query, ":") == "")
+		(p.mode == PaletteModeGoLine && strings.TrimPrefix(p.query, ":") == "") ||
+		(p.mode == PaletteModeZDir && strings.TrimPrefix(p.query, "z ") == "")
 	if showHint {
 		var hint string
 		switch p.mode {
@@ -247,8 +263,10 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 			hint = "Type to search open buffers..."
 		case PaletteModeGoLine:
 			hint = "Type line number..."
+		case PaletteModeZDir:
+			hint = "Type to search recent directories..."
 		default:
-			hint = "Search files... (> commands, : line, # buffers)"
+			hint = "Search files... (> commands, : line, # buffers, z dirs)"
 		}
 		hintStyle := bgStyle.Foreground(tcell.ColorDarkGray)
 		hx := startX + 2
@@ -414,6 +432,14 @@ func (p *CommandPalette) handleSelect() {
 				p.onBufferOpen(item.FilePath)
 			}
 		}
+	case PaletteModeZDir:
+		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
+			item := p.filtered[p.selectedIdx]
+			p.Hide()
+			if item.FilePath != "" && p.onDirOpen != nil {
+				p.onDirOpen(item.FilePath)
+			}
+		}
 	default: // file mode
 		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
 			item := p.filtered[p.selectedIdx]
@@ -434,6 +460,8 @@ func (p *CommandPalette) detectMode() {
 		p.mode = PaletteModeGoLine
 	} else if strings.HasPrefix(p.query, "#") {
 		p.mode = PaletteModeBuffer
+	} else if strings.HasPrefix(p.query, "z ") || p.query == "z" {
+		p.mode = PaletteModeZDir
 	} else {
 		p.mode = PaletteModeFile
 	}
@@ -449,6 +477,10 @@ func (p *CommandPalette) filterItems() {
 		searchQuery := strings.TrimPrefix(p.query, "#")
 		searchQuery = strings.TrimSpace(searchQuery)
 		p.fuzzyFilter(p.bufferItems, searchQuery)
+	case PaletteModeZDir:
+		searchQuery := strings.TrimPrefix(p.query, "z ")
+		searchQuery = strings.TrimSpace(searchQuery)
+		p.fuzzyFilter(p.zDirItems, searchQuery)
 	case PaletteModeGoLine:
 		p.filtered = nil
 	default: // file mode

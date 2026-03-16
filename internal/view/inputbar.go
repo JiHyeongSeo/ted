@@ -16,6 +16,7 @@ type InputBar struct {
 	visible  bool
 	onSubmit func(value string)
 	onCancel func()
+	onChange func(value string)
 }
 
 // NewInputBar creates a new InputBar.
@@ -49,6 +50,11 @@ func (ib *InputBar) SetOnSubmit(fn func(value string)) {
 // SetOnCancel sets the callback when Escape is pressed.
 func (ib *InputBar) SetOnCancel(fn func()) {
 	ib.onCancel = fn
+}
+
+// SetOnChange sets the callback when input value changes.
+func (ib *InputBar) SetOnChange(fn func(value string)) {
+	ib.onChange = fn
 }
 
 // SetValue pre-fills the input bar with a value.
@@ -158,10 +164,16 @@ func (ib *InputBar) HandleEvent(ev tcell.Event) bool {
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(ib.value) > 0 {
 			ib.value = ib.value[:len(ib.value)-1]
+			if ib.onChange != nil {
+				ib.onChange(string(ib.value))
+			}
 		}
 		return true
 	case tcell.KeyRune:
 		ib.value = append(ib.value, keyEv.Rune())
+		if ib.onChange != nil {
+			ib.onChange(string(ib.value))
+		}
 		return true
 	}
 

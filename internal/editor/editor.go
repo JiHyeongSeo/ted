@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -139,6 +140,9 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 			e.tabs.SetActive(idx)
 			e.syncViewToTab()
 		}
+	})
+	e.palette.SetOnDirOpen(func(path string) {
+		e.OpenDirectory(path)
 	})
 	e.palette.SetOnGoToLine(func(line int) {
 		if e.editorView != nil {
@@ -1102,6 +1106,9 @@ func (e *Editor) updatePaletteItems() {
 
 	// File items - scan project root
 	e.updatePaletteFileItems()
+
+	// Z directory items - load from ~/.z
+	e.loadZDirItems()
 }
 
 func (e *Editor) updatePaletteFileItems() {
@@ -1158,6 +1165,64 @@ func (e *Editor) updatePaletteFileItems() {
 	})
 
 	e.palette.SetFileItems(fileItems)
+}
+
+// loadZDirItems loads directory history from ~/.z (zsh-z/zoxide format).
+func (e *Editor) loadZDirItems() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".z"))
+	if err != nil {
+		return
+	}
+
+	type zEntry struct {
+		path  string
+		rank  float64
+	}
+
+	var entries []zEntry
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: path|rank|timestamp
+		parts := strings.Split(line, "|")
+		if len(parts) < 2 {
+			continue
+		}
+		dir := parts[0]
+		// Only include existing directories
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		rank := 0.0
+		fmt.Sscanf(parts[1], "%f", &rank)
+		entries = append(entries, zEntry{path: dir, rank: rank})
+	}
+
+	// Sort by rank descending (most used first)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].rank > entries[j].rank
+	})
+
+	items := make([]view.PaletteItem, len(entries))
+	for i, e := range entries {
+		// Show shortened path with ~ for home dir
+		label := e.path
+		if strings.HasPrefix(label, home) {
+			label = "~" + label[len(home):]
+		}
+		items[i] = view.PaletteItem{
+			Label:    label,
+			FilePath: e.path,
+		}
+	}
+	e.palette.SetZDirItems(items)
 }
 
 // LoadKeybindings loads key bindings from the default keybindings config.
@@ -1631,43 +1696,69 @@ func (e *Editor) closeCurrentTab() {
 
 // showProjectSearch opens the project-wide search input.
 func (e *Editor) showProjectSearch() {
+	// Show panel immediately for live results
+	e.layout.SetPanelVisible(true)
+	e.panel.SetActiveTab(1)
+	e.panel.SetContent(1, []string{"Type to search..."})
+
+	doSearch := func(query string) {
+		query = strings.TrimSpace(query)
+		if query == "" {
+			e.projectSearchResults = nil
+			e.projectSearchQuery = ""
+			e.panel.SetContent(1, []string{"Type to search..."})
+			e.statusBar.SetMessage("")
+			return
+		}
+		if len(query) < 2 {
+			return // wait for at least 2 chars
+		}
+		go func() {
+			ps := search.NewProjectSearch(e.projectRoot, []string{".git", "node_modules", "vendor"}, true)
+			results, err := ps.Search(query, false)
+			if err != nil {
+				e.statusBar.SetMessage(fmt.Sprintf("Search error: %v", err))
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+				return
+			}
+			e.projectSearchResults = results
+			e.projectSearchQuery = query
+			var lines []string
+			for _, r := range results {
+				rel, _ := filepath.Rel(e.projectRoot, r.File)
+				if rel == "" {
+					rel = r.File
+				}
+				lines = append(lines, fmt.Sprintf("%s:%d:%d  %s", rel, r.Line, r.Col, r.Text))
+			}
+			if len(lines) == 0 {
+				lines = append(lines, fmt.Sprintf("No results for '%s'", query))
+			} else {
+				lines = append([]string{fmt.Sprintf("Found %d results for '%s':", len(results), query)}, lines...)
+			}
+			e.panel.SetContent(1, lines)
+			e.statusBar.SetMessage(fmt.Sprintf("Found %d results", len(results)))
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	}
+
+	// Live search on every keystroke
+	e.inputBar.SetOnChange(doSearch)
+
 	e.inputBar.SetOnSubmit(func(query string) {
+		e.inputBar.Hide()
+		e.inputBar.SetOnChange(nil)
 		query = strings.TrimSpace(query)
 		if query == "" {
 			return
 		}
-		ps := search.NewProjectSearch(e.projectRoot, []string{".git", "node_modules", "vendor"}, true)
-		results, err := ps.Search(query, false)
-		if err != nil {
-			e.statusBar.SetMessage(fmt.Sprintf("Search error: %v", err))
-			return
-		}
-		e.projectSearchResults = results
-		e.projectSearchQuery = query
-		// Show results in the bottom panel "Output" tab
-		var lines []string
-		for _, r := range results {
-			rel, _ := filepath.Rel(e.projectRoot, r.File)
-			if rel == "" {
-				rel = r.File
-			}
-			lines = append(lines, fmt.Sprintf("%s:%d:%d  %s", rel, r.Line, r.Col, r.Text))
-		}
-		if len(lines) == 0 {
-			lines = append(lines, fmt.Sprintf("No results for '%s'", query))
-		} else {
-			lines = append([]string{fmt.Sprintf("Found %d results for '%s':", len(results), query)}, lines...)
-		}
-		e.panel.SetContent(1, lines) // "Output" tab
-		e.panel.SetActiveTab(1)
-		e.layout.SetPanelVisible(true)
-		e.panelFocus = true
-		e.sidebarFocus = false
-		e.statusBar.SetMessage(fmt.Sprintf("Found %d results", len(results)))
-
-		// If there are results, jump to first one
-		if len(results) > 0 {
-			first := results[0]
+		// Navigate to first result
+		if len(e.projectSearchResults) > 0 {
+			first := e.projectSearchResults[0]
 			e.OpenFile(first.File)
 			if e.editorView != nil {
 				e.editorView.SetCursorPosition(types.Position{Line: first.Line - 1, Col: first.Col - 1})
@@ -1675,20 +1766,14 @@ func (e *Editor) showProjectSearch() {
 				e.highlightProjectSearchInFile()
 			}
 		}
+		e.panelFocus = true
+		e.sidebarFocus = false
 	})
 	e.inputBar.SetOnCancel(func() {
-		// Restore go-to-line behavior after project search
-		e.inputBar.SetOnSubmit(func(value string) {
-			lineNum, err := strconv.Atoi(strings.TrimSpace(value))
-			if err != nil || lineNum < 1 {
-				e.statusBar.SetMessage("Invalid line number")
-				return
-			}
-			if e.editorView != nil {
-				e.editorView.SetCursorPosition(types.Position{Line: lineNum - 1, Col: 0})
-				e.syncTabFromView()
-			}
-		})
+		e.inputBar.SetOnChange(nil)
+		e.projectSearchResults = nil
+		e.projectSearchQuery = ""
+		e.layout.SetPanelVisible(false)
 	})
 	e.inputBar.Show("Search in files: ")
 }

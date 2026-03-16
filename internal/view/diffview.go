@@ -74,13 +74,9 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 	sepStyle := bgStyle.Foreground(dv.theme.ResolveColor("#505050"))
 	lineNumStyle := dv.theme.UIStyle("linenumber")
 
-	// Use theme git colors with stronger visibility for diff backgrounds
+	// Diff background colors (syntax highlighting provides foreground)
 	addedBg := dv.theme.ResolveColor("#1e3a1e")
 	removedBg := dv.theme.ResolveColor("#3a1e1e")
-	modifiedBg := dv.theme.ResolveColor("#2e2e1e")
-	addedFg := dv.theme.ResolveColor("#73c991")
-	removedFg := dv.theme.ResolveColor("#f48771")
-	modifiedFg := dv.theme.ResolveColor("#e2c08d")
 
 	// Clear
 	for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {
@@ -128,58 +124,62 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 		}
 		dl := dv.lines[idx]
 
-		// Determine styles for each side
-		var leftStyle, rightStyle tcell.Style
+		// Determine background color for each side (syntax highlighting always on)
+		var leftBg, rightBg tcell.Color
+		leftBg = tcell.ColorDefault
+		rightBg = tcell.ColorDefault
 		switch dl.Kind {
 		case DiffAdded:
-			leftStyle = bgStyle
-			rightStyle = bgStyle.Background(addedBg).Foreground(addedFg)
+			rightBg = addedBg
 		case DiffRemoved:
-			leftStyle = bgStyle.Background(removedBg).Foreground(removedFg)
-			rightStyle = bgStyle
+			leftBg = removedBg
 		case DiffModified:
-			leftStyle = bgStyle.Background(modifiedBg).Foreground(modifiedFg)
-			rightStyle = bgStyle.Background(modifiedBg).Foreground(modifiedFg)
-		default:
-			leftStyle = bgStyle
-			rightStyle = bgStyle
+			leftBg = removedBg
+			rightBg = addedBg
 		}
 
-		// Draw left side (syntax highlighting only on equal lines)
-		isEqual := dl.Kind == DiffEqual
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle, isEqual)
-
-		// Draw right side
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle, isEqual)
+		// Draw both sides with syntax highlighting + diff background
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle, leftBg)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle, rightBg)
 	}
 }
 
-func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style, syntaxHL bool) {
+func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, baseStyle, numStyle tcell.Style, diffBg tcell.Color) {
+	// Determine the row background
+	rowStyle := baseStyle
+	if diffBg != tcell.ColorDefault {
+		rowStyle = baseStyle.Background(diffBg)
+	}
+
 	// Clear the side
 	for x := startX; x < startX+lineNumW+textW; x++ {
-		screen.SetContent(x, y, ' ', nil, textStyle)
+		screen.SetContent(x, y, ' ', nil, rowStyle)
 	}
 
 	// Line number
 	if lineNum > 0 {
 		numStr := fmt.Sprintf("%*d ", lineNumW-1, lineNum)
+		ns := numStyle
+		if diffBg != tcell.ColorDefault {
+			ns = numStyle.Background(diffBg)
+		}
 		nx := startX
 		for _, ch := range numStr {
 			if nx >= startX+lineNumW {
 				break
 			}
-			screen.SetContent(nx, y, ch, nil, numStyle)
+			screen.SetContent(nx, y, ch, nil, ns)
 			nx++
 		}
 	} else {
 		for nx := startX; nx < startX+lineNumW; nx++ {
-			screen.SetContent(nx, y, ' ', nil, numStyle)
+			screen.SetContent(nx, y, ' ', nil, rowStyle)
 		}
 	}
 
-	// Get syntax tokens for this line (only for unchanged lines)
+	// Get syntax tokens for all lines (always highlight)
 	var tokens []syntax.Token
-	if syntaxHL && dv.highlighter != nil && text != "" {
+	if dv.highlighter != nil && text != "" {
 		tokens = dv.highlighter.HighlightLine(text)
 	}
 
@@ -192,7 +192,7 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		if ch == '\t' {
 			w = 4
 			for j := 0; j < w && tx < maxX; j++ {
-				screen.SetContent(tx, y, ' ', nil, textStyle)
+				screen.SetContent(tx, y, ' ', nil, rowStyle)
 				tx++
 			}
 			runeIdx++
@@ -202,15 +202,19 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 			break
 		}
 
-		style := textStyle
-		// Apply syntax highlighting: always preserve diff background color
+		style := rowStyle
+		// Apply syntax highlighting with diff background preserved
 		if len(tokens) > 0 {
 			for _, token := range tokens {
 				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
 					tokenStyle := dv.highlighter.StyleForToken(token.Type)
 					fg, _, _ := tokenStyle.Decompose()
-					_, bg, _ := textStyle.Decompose()
-					style = tcell.StyleDefault.Foreground(fg).Background(bg)
+					if diffBg != tcell.ColorDefault {
+						style = tcell.StyleDefault.Foreground(fg).Background(diffBg)
+					} else {
+						_, bg, _ := baseStyle.Decompose()
+						style = tcell.StyleDefault.Foreground(fg).Background(bg)
+					}
 					break
 				}
 			}
