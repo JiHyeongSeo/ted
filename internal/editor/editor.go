@@ -951,8 +951,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
 	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
-	e.keymap.Bind("ctrl+\\", "split.vertical", "")
-	e.keymap.Bind("alt+w", "split.focus", "")
+	// split keybindings are loaded from keybindings.json
 }
 
 // --- EditorContext interface implementation ---
