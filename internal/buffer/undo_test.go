@@ -3,7 +3,7 @@ package buffer
 import "testing"
 
 func TestUndoInsert(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	um := NewUndoManager(pt)
 	um.Execute(pt.Insert(5, " world"))
 	if got := pt.Text(); got != "hello world" {
@@ -16,7 +16,7 @@ func TestUndoInsert(t *testing.T) {
 }
 
 func TestRedoInsert(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	um := NewUndoManager(pt)
 	um.Execute(pt.Insert(5, " world"))
 	um.Undo()
@@ -27,7 +27,7 @@ func TestRedoInsert(t *testing.T) {
 }
 
 func TestUndoDelete(t *testing.T) {
-	pt := NewPieceTable("hello world")
+	pt := NewPieceTableFromString("hello world")
 	um := NewUndoManager(pt)
 	um.Execute(pt.Delete(5, 6))
 	if got := pt.Text(); got != "hello" {
@@ -40,7 +40,7 @@ func TestUndoDelete(t *testing.T) {
 }
 
 func TestMultipleUndoRedo(t *testing.T) {
-	pt := NewPieceTable("")
+	pt := NewPieceTableFromString("")
 	um := NewUndoManager(pt)
 	um.Execute(pt.Insert(0, "a"))
 	um.Execute(pt.Insert(1, "b"))
@@ -60,7 +60,7 @@ func TestMultipleUndoRedo(t *testing.T) {
 }
 
 func TestRedoClearedOnNewEdit(t *testing.T) {
-	pt := NewPieceTable("a")
+	pt := NewPieceTableFromString("a")
 	um := NewUndoManager(pt)
 	um.Execute(pt.Insert(1, "b"))
 	um.Undo()
@@ -79,7 +79,7 @@ func TestRedoClearedOnNewEdit(t *testing.T) {
 }
 
 func TestUndoOnEmptyStack(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	um := NewUndoManager(pt)
 	um.Undo() // should be no-op
 	if got := pt.Text(); got != "hello" {
@@ -88,7 +88,7 @@ func TestUndoOnEmptyStack(t *testing.T) {
 }
 
 func TestDirtyTracking(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	um := NewUndoManager(pt)
 	if um.IsDirty() {
 		t.Error("should not be dirty initially")
@@ -112,7 +112,7 @@ func TestDirtyTracking(t *testing.T) {
 }
 
 func TestCanUndoCanRedo(t *testing.T) {
-	pt := NewPieceTable("x")
+	pt := NewPieceTableFromString("x")
 	um := NewUndoManager(pt)
 	if um.CanUndo() {
 		t.Error("should not be able to undo initially")

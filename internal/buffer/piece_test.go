@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestNewPieceTable(t *testing.T) {
-	pt := NewPieceTable("hello world")
+func TestNewPieceTableFromString(t *testing.T) {
+	pt := NewPieceTableFromString("hello world")
 	if got := pt.Text(); got != "hello world" {
 		t.Errorf("expected 'hello world', got %q", got)
 	}
@@ -16,7 +16,7 @@ func TestNewPieceTable(t *testing.T) {
 }
 
 func TestPieceTableEmpty(t *testing.T) {
-	pt := NewPieceTable("")
+	pt := NewPieceTableFromString("")
 	if got := pt.Text(); got != "" {
 		t.Errorf("expected empty string, got %q", got)
 	}
@@ -26,7 +26,7 @@ func TestPieceTableEmpty(t *testing.T) {
 }
 
 func TestInsertAtStart(t *testing.T) {
-	pt := NewPieceTable("world")
+	pt := NewPieceTableFromString("world")
 	pt.Insert(0, "hello ")
 	if got := pt.Text(); got != "hello world" {
 		t.Errorf("expected 'hello world', got %q", got)
@@ -34,7 +34,7 @@ func TestInsertAtStart(t *testing.T) {
 }
 
 func TestInsertAtEnd(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	pt.Insert(5, " world")
 	if got := pt.Text(); got != "hello world" {
 		t.Errorf("expected 'hello world', got %q", got)
@@ -42,7 +42,7 @@ func TestInsertAtEnd(t *testing.T) {
 }
 
 func TestInsertInMiddle(t *testing.T) {
-	pt := NewPieceTable("helloworld")
+	pt := NewPieceTableFromString("helloworld")
 	pt.Insert(5, " ")
 	if got := pt.Text(); got != "hello world" {
 		t.Errorf("expected 'hello world', got %q", got)
@@ -50,7 +50,7 @@ func TestInsertInMiddle(t *testing.T) {
 }
 
 func TestDeleteFromStart(t *testing.T) {
-	pt := NewPieceTable("hello world")
+	pt := NewPieceTableFromString("hello world")
 	pt.Delete(0, 6)
 	if got := pt.Text(); got != "world" {
 		t.Errorf("expected 'world', got %q", got)
@@ -58,7 +58,7 @@ func TestDeleteFromStart(t *testing.T) {
 }
 
 func TestDeleteFromEnd(t *testing.T) {
-	pt := NewPieceTable("hello world")
+	pt := NewPieceTableFromString("hello world")
 	pt.Delete(5, 6)
 	if got := pt.Text(); got != "hello" {
 		t.Errorf("expected 'hello', got %q", got)
@@ -66,7 +66,7 @@ func TestDeleteFromEnd(t *testing.T) {
 }
 
 func TestDeleteFromMiddle(t *testing.T) {
-	pt := NewPieceTable("hello world")
+	pt := NewPieceTableFromString("hello world")
 	pt.Delete(5, 1)
 	if got := pt.Text(); got != "helloworld" {
 		t.Errorf("expected 'helloworld', got %q", got)
@@ -74,7 +74,7 @@ func TestDeleteFromMiddle(t *testing.T) {
 }
 
 func TestDeleteAll(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	pt.Delete(0, 5)
 	if got := pt.Text(); got != "" {
 		t.Errorf("expected empty, got %q", got)
@@ -82,7 +82,7 @@ func TestDeleteAll(t *testing.T) {
 }
 
 func TestMultipleInserts(t *testing.T) {
-	pt := NewPieceTable("")
+	pt := NewPieceTableFromString("")
 	pt.Insert(0, "c")
 	pt.Insert(0, "a")
 	pt.Insert(1, "b")
@@ -92,7 +92,7 @@ func TestMultipleInserts(t *testing.T) {
 }
 
 func TestInsertAndDelete(t *testing.T) {
-	pt := NewPieceTable("ac")
+	pt := NewPieceTableFromString("ac")
 	pt.Insert(1, "b")
 	if got := pt.Text(); got != "abc" {
 		t.Errorf("expected 'abc', got %q", got)
@@ -104,7 +104,7 @@ func TestInsertAndDelete(t *testing.T) {
 }
 
 func TestDeleteAcrossPieces(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	pt.Insert(5, " world")
 	// Now pieces: ["hello", " world"]
 	// Delete "lo wo" (offset 3, length 5) which spans both pieces
@@ -116,7 +116,7 @@ func TestDeleteAcrossPieces(t *testing.T) {
 
 func TestLargeContent(t *testing.T) {
 	content := strings.Repeat("abcdefghij\n", 10000) // 110KB
-	pt := NewPieceTable(content)
+	pt := NewPieceTableFromString(content)
 	if pt.Length() != len(content) {
 		t.Errorf("expected length %d, got %d", len(content), pt.Length())
 	}
@@ -130,7 +130,7 @@ func TestLargeContent(t *testing.T) {
 }
 
 func TestTextRange(t *testing.T) {
-	pt := NewPieceTable("hello world")
+	pt := NewPieceTableFromString("hello world")
 	got := pt.TextRange(6, 5)
 	if got != "world" {
 		t.Errorf("expected 'world', got %q", got)
@@ -138,7 +138,7 @@ func TestTextRange(t *testing.T) {
 }
 
 func TestTextRangeAcrossPieces(t *testing.T) {
-	pt := NewPieceTable("hello")
+	pt := NewPieceTableFromString("hello")
 	pt.Insert(5, " world")
 	got := pt.TextRange(3, 5)
 	if got != "lo wo" {
