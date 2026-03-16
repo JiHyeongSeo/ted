@@ -1335,38 +1335,7 @@ func (e *Editor) ExecuteCommand(name string) error {
 	case "file.save":
 		if tab := e.tabs.Active(); tab != nil {
 			if tab.Buffer.Path() == "" {
-				// Untitled — ask for save path
-				e.inputBar.Show("Save as: ")
-				e.inputBar.SetOnSubmit(func(path string) {
-					e.inputBar.Hide()
-					path = strings.TrimSpace(path)
-					if path == "" {
-						e.statusBar.SetMessage("Save cancelled")
-						return
-					}
-					if !filepath.IsAbs(path) {
-						if e.projectRoot != "" {
-							path = filepath.Join(e.projectRoot, path)
-						} else {
-							abs, err := filepath.Abs(path)
-							if err == nil {
-								path = abs
-							}
-						}
-					}
-					tab.Buffer.SetPath(path)
-					tab.Buffer.SetUntitledName("")
-					tab.Language = detectLanguage(path)
-					if err := tab.Buffer.Save(); err != nil {
-						tab.Buffer.SetPath("")
-						e.statusBar.SetMessage("Save failed: " + err.Error())
-						return
-					}
-					e.syncViewToTab()
-					e.statusBar.SetMessage("Saved: " + filepath.Base(path))
-					e.updateGutterMarkers()
-					e.updatePaletteFileItems()
-				})
+				e.showSaveAsDialog(tab)
 				return nil
 			}
 			if err := tab.Buffer.Save(); err != nil {
@@ -1377,6 +1346,7 @@ func (e *Editor) ExecuteCommand(name string) error {
 				lsp.DidSave(client, lsp.FileURIFromPath(tab.Buffer.Path()), tab.Buffer.Text())
 			}
 			e.updateGutterMarkers()
+			e.sidebar.Refresh()
 		}
 	case "editor.beautify":
 		e.showBeautifyPicker()
@@ -1726,6 +1696,69 @@ func detectLanguage(path string) string {
 	default:
 		return "text"
 	}
+}
+
+// showSaveAsDialog opens the z dir browser to pick a save directory,
+// then prompts for a filename, and finally saves the untitled buffer.
+func (e *Editor) showSaveAsDialog(tab *TabInfo) {
+	// Start in project root (or home if no project)
+	startDir := e.projectRoot
+	if startDir == "" {
+		startDir, _ = os.UserHomeDir()
+	}
+	home, _ := os.UserHomeDir()
+	displayDir := startDir
+	if strings.HasPrefix(displayDir, home) {
+		displayDir = "~" + displayDir[len(home):]
+	}
+
+	// Use palette z-dir browser for directory selection
+	savedOnDirOpen := e.palette.OnDirOpen()
+	savedOnDismiss := e.palette.OnDismiss()
+
+	e.palette.SetOnDirOpen(func(dir string) {
+		// Restore callbacks before showing inputBar
+		e.palette.SetOnDirOpen(savedOnDirOpen)
+		e.palette.SetOnDismiss(savedOnDismiss)
+
+		e.inputBar.Show(fmt.Sprintf("Filename [%s/]: ", dir))
+		e.inputBar.SetOnSubmit(func(name string) {
+			e.inputBar.Hide()
+			name = strings.TrimSpace(name)
+			if name == "" {
+				e.statusBar.SetMessage("Save cancelled")
+				return
+			}
+			fullPath := filepath.Join(dir, name)
+			e.doSaveAs(tab, fullPath)
+		})
+	})
+	e.palette.SetOnDismiss(func() {
+		e.palette.SetOnDirOpen(savedOnDirOpen)
+		e.palette.SetOnDismiss(savedOnDismiss)
+		e.statusBar.SetMessage("Save cancelled")
+	})
+
+	e.palette.ShowWithQuery("z " + displayDir + "/")
+}
+
+// doSaveAs performs the actual save-as operation for an untitled tab.
+func (e *Editor) doSaveAs(tab *TabInfo, path string) {
+	prevUntitled := tab.Buffer.UntitledName()
+	tab.Buffer.SetPath(path)
+	tab.Buffer.SetUntitledName("")
+	tab.Language = detectLanguage(path)
+	if err := tab.Buffer.Save(); err != nil {
+		tab.Buffer.SetPath("")
+		tab.Buffer.SetUntitledName(prevUntitled)
+		e.statusBar.SetMessage("Save failed: " + err.Error())
+		return
+	}
+	e.syncViewToTab()
+	e.statusBar.SetMessage("Saved: " + filepath.Base(path))
+	e.updateGutterMarkers()
+	e.updatePaletteFileItems()
+	e.sidebar.Refresh()
 }
 
 // showBeautifyPicker shows a 3-option picker then applies the chosen formatter.

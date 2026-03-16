@@ -87,6 +87,16 @@ func (p *CommandPalette) OnSelect() func(item PaletteItem) {
 	return p.onSelect
 }
 
+// OnDirOpen returns the current dir-open callback.
+func (p *CommandPalette) OnDirOpen() func(path string) {
+	return p.onDirOpen
+}
+
+// OnDismiss returns the current dismiss callback.
+func (p *CommandPalette) OnDismiss() func() {
+	return p.onDismiss
+}
+
 // SetOnFileOpen sets the callback when a file is selected.
 func (p *CommandPalette) SetOnFileOpen(fn func(path string)) {
 	p.onFileOpen = fn
