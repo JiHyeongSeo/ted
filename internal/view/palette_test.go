@@ -266,3 +266,28 @@ func TestPaletteItemKeybinding(t *testing.T) {
 		t.Errorf("expected Ctrl+S, got %s", item.Keybinding)
 	}
 }
+
+func TestFuzzyFilterFallsBackToDescription(t *testing.T) {
+	p := NewCommandPalette(nil)
+	items := []PaletteItem{
+		{Label: "file.save", Description: "Save the current file"},
+		{Label: "file.open", Description: "Open a file"},
+	}
+	p.SetItems(items)
+
+	// Use query "current" which appears in description but NOT in label
+	p.query = ">current"
+	p.mode = PaletteModeCommand
+	p.filterItems()
+
+	found := false
+	for _, item := range p.filtered {
+		if item.Label == "file.save" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'file.save' to match via description fallback")
+	}
+}

@@ -410,16 +410,40 @@ func (p *CommandPalette) fuzzyFilter(items []PaletteItem, query string) {
 		copy(p.filtered, items)
 		return
 	}
+
+	// Primary: match on labels
 	labels := make([]string, len(items))
 	for i, item := range items {
 		labels[i] = item.Label
 	}
 	matches := fuzzy.Find(query, labels)
-	p.filtered = make([]PaletteItem, len(matches))
-	for i, m := range matches {
+
+	matched := make(map[int]bool)
+	p.filtered = make([]PaletteItem, 0, len(matches))
+	for _, m := range matches {
 		item := items[m.Index]
 		item.MatchPositions = m.MatchedIndexes
-		p.filtered[i] = item
+		p.filtered = append(p.filtered, item)
+		matched[m.Index] = true
+	}
+
+	// Fallback: match on descriptions for unmatched items
+	var unmatched []string
+	var unmatchedIdx []int
+	for i, item := range items {
+		if !matched[i] {
+			unmatched = append(unmatched, item.Description)
+			unmatchedIdx = append(unmatchedIdx, i)
+		}
+	}
+	if len(unmatched) > 0 {
+		descMatches := fuzzy.Find(query, unmatched)
+		for _, m := range descMatches {
+			origIdx := unmatchedIdx[m.Index]
+			item := items[origIdx]
+			// No label match positions for description matches
+			p.filtered = append(p.filtered, item)
+		}
 	}
 }
 
