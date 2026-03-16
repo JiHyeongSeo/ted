@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -14,18 +15,40 @@ func formatDocument(content, language, filePath string) (string, error) {
 	switch language {
 	case "json":
 		return formatJSON(content)
-	case "html":
-		return formatViaPrettier(content, filePath, "html")
-	case "css", "scss", "less":
-		return formatViaPrettier(content, filePath, "css")
-	case "javascript":
-		return formatViaPrettier(content, filePath, "babel")
-	case "typescript":
-		return formatViaPrettier(content, filePath, "typescript")
+	case "html", "css", "javascript", "typescript":
+		// Let prettier auto-detect via --stdin-filepath when path is available.
+		// If no path, fall back to the explicit parser per language.
+		parser := map[string]string{
+			"html":       "html",
+			"css":        "css",
+			"javascript": "babel",
+			"typescript": "typescript",
+		}[language]
+		return formatViaPrettier(content, filePath, parser)
 	case "sql":
 		return formatSQL(content)
 	default:
-		return "", fmt.Errorf("no formatter available for '%s' — change language mode first if needed", language)
+		return "", fmt.Errorf("no formatter available for '%s'", language)
+	}
+}
+
+// prettierLanguage maps a file's language/ext to the right prettier parser.
+// Used when the user picks "HTML / CSS / JS / TS" and we want prettier to
+// auto-select the parser from the file path extension.
+func prettierLanguageFromPath(filePath string) string {
+	if filePath == "" {
+		return "html" // default fallback
+	}
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".css", ".scss", ".less":
+		return "css"
+	case ".js", ".jsx":
+		return "babel"
+	case ".ts", ".tsx":
+		return "typescript"
+	default:
+		return "html"
 	}
 }
 

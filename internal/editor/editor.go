@@ -1378,8 +1378,8 @@ func (e *Editor) ExecuteCommand(name string) error {
 			}
 			e.updateGutterMarkers()
 		}
-	case "editor.format":
-		e.formatCurrentBuffer()
+	case "editor.beautify":
+		e.showBeautifyPicker()
 	case "editor.selectLanguage":
 		e.selectLanguage()
 	case "file.close":
@@ -1728,31 +1728,44 @@ func detectLanguage(path string) string {
 	}
 }
 
-// formatCurrentBuffer runs the appropriate formatter on the active buffer,
-// replaces the content in-place (marks it dirty), and updates the view.
-func (e *Editor) formatCurrentBuffer() {
+// showBeautifyPicker shows a 3-option picker then applies the chosen formatter.
+func (e *Editor) showBeautifyPicker() {
 	tab := e.tabs.Active()
 	if tab == nil || e.editorView == nil {
 		return
 	}
-	original := tab.Buffer.Text()
-	formatted, err := formatDocument(original, tab.Language, tab.Buffer.Path())
-	if err != nil {
-		e.statusBar.SetMessage("Format: " + err.Error())
-		return
-	}
-	if formatted == original {
-		e.statusBar.SetMessage("Already formatted")
-		return
-	}
-	// Replace buffer content: delete all then insert (undo-able, marks dirty)
-	tab.Buffer.Delete(0, 0, len(original))
-	tab.Buffer.Insert(0, 0, formatted)
-	if e.editorView != nil {
-		e.editorView.ReparseHighlighting()
-	}
-	e.syncTabFromView()
-	e.statusBar.SetMessage("Formatted")
+	options := []string{"JSON", "HTML / CSS / JS / TS", "SQL"}
+	e.listPicker.Show("Beautify", options)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(item string) {
+		var lang string
+		switch item {
+		case "JSON":
+			lang = "json"
+		case "HTML / CSS / JS / TS":
+			// Derive exact parser from file extension; default to html
+			lang = prettierLanguageFromPath(tab.Buffer.Path())
+		case "SQL":
+			lang = "sql"
+		}
+		original := tab.Buffer.Text()
+		formatted, err := formatDocument(original, lang, tab.Buffer.Path())
+		if err != nil {
+			e.statusBar.SetMessage("Beautify: " + err.Error())
+			return
+		}
+		if formatted == original {
+			e.statusBar.SetMessage("Already formatted")
+			return
+		}
+		tab.Buffer.Delete(0, 0, len(original))
+		tab.Buffer.Insert(0, 0, formatted)
+		if e.editorView != nil {
+			e.editorView.ReparseHighlighting()
+		}
+		e.syncTabFromView()
+		e.statusBar.SetMessage("Beautified (" + item + ")")
+	})
 }
 
 // byteColToRuneCol converts a byte offset to a rune count within a string.

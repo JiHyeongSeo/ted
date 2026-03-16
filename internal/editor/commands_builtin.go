@@ -43,10 +43,10 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 	})
 
 	reg.Register(&Command{
-		Name:        "editor.format",
-		Description: "Format/Beautify document (JSON built-in; HTML/CSS/JS/TS via prettier; SQL via sqlformat)",
+		Name:        "editor.beautify",
+		Description: "Beautify document — choose JSON / HTML,CSS,JS / SQL",
 		Execute: func(ctx EditorContext) error {
-			return ctx.ExecuteCommand("editor.format")
+			return ctx.ExecuteCommand("editor.beautify")
 		},
 	})
 
