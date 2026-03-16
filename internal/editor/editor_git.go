@@ -227,23 +227,7 @@ func (e *Editor) gitOpenGraph() {
 		e.commitDetailView.SetCommit(commit, files)
 	})
 
-	// Set up Enter callback — show commit diff in panel
-	e.graphView.SetOnEnter(func(commit *git.Commit) {
-		if commit == nil {
-			return
-		}
-		output, err := git.ShowCommit(e.diffTracker.RepoRoot(), commit.Hash)
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-			return
-		}
-		lines := strings.Split(output, "\n")
-		e.panel.SetContent(1, lines) // Output tab
-		e.panel.SetActiveTab(1)
-		e.layout.SetPanelVisible(true)
-	})
-
-	// Set up file Enter callback — open side-by-side diff in new tab
+	// Set up file Enter callback — open inline diff view
 	e.commitDetailView.SetOnFileEnter(func(commit *git.Commit, fileLine string) {
 		if commit == nil || fileLine == "" {
 			return
@@ -278,11 +262,9 @@ func (e *Editor) gitOpenGraph() {
 		}
 
 		title := fmt.Sprintf("%s (%s)", filepath.Base(filePath), commit.ShortHash)
-		e.diffView = view.NewDiffView(e.theme, oldText, newText, title)
-		e.tabs.Open(buffer.NewBuffer(""), filePath)
-		e.tabs.Active().Kind = TabKindDiff
-		e.syncViewToTab()
-		e.statusBar.SetMessage(fmt.Sprintf("Diff: %s", filePath))
+		e.graphDiffView = view.NewDiffView(e.theme, oldText, newText, title)
+		e.graphFocus = 2
+		e.statusBar.SetMessage(fmt.Sprintf("Diff: %s  (Esc to go back)", filePath))
 	})
 
 	// Select first commit

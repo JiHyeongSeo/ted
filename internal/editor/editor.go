@@ -59,8 +59,8 @@ type Editor struct {
 	diffTracker      *git.DiffTracker
 	graphView        *view.GraphView
 	commitDetailView *view.CommitDetailView
-	graphDetailFocus bool // true when commit detail has focus in graph tab
-	diffView         *view.DiffView
+	graphDiffView    *view.DiffView // inline diff within graph tab
+	graphFocus       int            // 0=graph, 1=files, 2=diff
 	pasteActive      bool
 }
 
@@ -444,26 +444,32 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 
-	// Diff tab event handling
+	// Graph tab event handling (state machine: graph → files → diff)
 	tab := e.tabs.Active()
-	if tab != nil && tab.Kind == TabKindDiff && e.diffView != nil {
-		if e.diffView.HandleEvent(ev) {
-			return
-		}
-	}
-
-	// Graph tab event handling
 	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
-		// Tab key toggles focus between graph and detail
-		if ev.Key() == tcell.KeyTab {
-			e.graphDetailFocus = !e.graphDetailFocus
-			return
-		}
-		if e.graphDetailFocus && e.commitDetailView != nil {
-			if e.commitDetailView.HandleEvent(ev) {
+		switch e.graphFocus {
+		case 2: // diff view
+			if ev.Key() == tcell.KeyEscape {
+				e.graphFocus = 1 // back to file list
+				e.graphDiffView = nil
 				return
 			}
-		} else {
+			if e.graphDiffView != nil && e.graphDiffView.HandleEvent(ev) {
+				return
+			}
+		case 1: // file list
+			if ev.Key() == tcell.KeyEscape {
+				e.graphFocus = 0 // back to graph
+				return
+			}
+			if e.commitDetailView != nil && e.commitDetailView.HandleEvent(ev) {
+				return
+			}
+		default: // 0: graph
+			if ev.Key() == tcell.KeyEnter {
+				e.graphFocus = 1 // move to file list
+				return
+			}
 			if e.graphView.HandleEvent(ev) {
 				return
 			}
@@ -558,13 +564,17 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 	// Graph view mouse events
 	tab := e.tabs.Active()
 	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
-		if e.graphView.HandleEvent(ev) {
-			return
-		}
-		if e.commitDetailView != nil {
+		if e.graphFocus == 2 && e.graphDiffView != nil {
+			if e.graphDiffView.HandleEvent(ev) {
+				return
+			}
+		} else if e.graphFocus == 1 && e.commitDetailView != nil {
 			if e.commitDetailView.HandleEvent(ev) {
 				return
 			}
+		}
+		if e.graphView.HandleEvent(ev) {
+			return
 		}
 	}
 
@@ -613,8 +623,6 @@ func (e *Editor) render() {
 			title := ""
 			if t.Kind == TabKindGraph {
 				title = "⎇ Git Graph"
-			} else if t.Kind == TabKindDiff {
-				title = "⇄ " + filepath.Base(t.Language) // Language stores the file path for diff tabs
 			} else if t.Buffer.Path() != "" {
 				title = filepath.Base(t.Buffer.Path())
 			}
@@ -670,23 +678,31 @@ func (e *Editor) render() {
 		if r, ok := regions["editor"]; ok {
 			tab := e.tabs.Active()
 			if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
-				graphHeight := r.Height * 7 / 10
-				detailHeight := r.Height - graphHeight
+				if e.graphFocus == 2 && e.graphDiffView != nil {
+					// Full-screen diff view
+					e.graphDiffView.SetBounds(r)
+					e.graphDiffView.SetFocused(true)
+					e.graphDiffView.Render(e.screen)
+				} else {
+					graphHeight := r.Height * 7 / 10
+					detailHeight := r.Height - graphHeight
+					if e.graphFocus == 1 {
+						// When files focused, give more space to detail
+						graphHeight = r.Height * 4 / 10
+						detailHeight = r.Height - graphHeight
+					}
 
-				graphRect := types.Rect{X: r.X, Y: r.Y, Width: r.Width, Height: graphHeight}
-				detailRect := types.Rect{X: r.X, Y: r.Y + graphHeight, Width: r.Width, Height: detailHeight}
+					graphRect := types.Rect{X: r.X, Y: r.Y, Width: r.Width, Height: graphHeight}
+					detailRect := types.Rect{X: r.X, Y: r.Y + graphHeight, Width: r.Width, Height: detailHeight}
 
-				e.graphView.SetBounds(graphRect)
-				e.graphView.SetFocused(!e.graphDetailFocus)
-				e.graphView.Render(e.screen)
+					e.graphView.SetBounds(graphRect)
+					e.graphView.SetFocused(e.graphFocus == 0)
+					e.graphView.Render(e.screen)
 
-				e.commitDetailView.SetBounds(detailRect)
-				e.commitDetailView.SetFocused(e.graphDetailFocus)
-				e.commitDetailView.Render(e.screen)
-			} else if tab != nil && tab.Kind == TabKindDiff && e.diffView != nil {
-				e.diffView.SetBounds(r)
-				e.diffView.SetFocused(true)
-				e.diffView.Render(e.screen)
+					e.commitDetailView.SetBounds(detailRect)
+					e.commitDetailView.SetFocused(e.graphFocus == 1)
+					e.commitDetailView.Render(e.screen)
+				}
 			} else if e.editorView != nil {
 				e.editorView.SetBounds(r)
 				e.editorView.SetFocused(true)
@@ -788,7 +804,7 @@ func (e *Editor) syncViewToTab() {
 		return
 	}
 
-	if tab.Kind == TabKindGraph || tab.Kind == TabKindDiff {
+	if tab.Kind == TabKindGraph {
 		e.editorView = nil
 		return
 	}
@@ -1430,18 +1446,8 @@ func (e *Editor) closeCurrentTab() {
 	if tab.Kind == TabKindGraph {
 		e.graphView = nil
 		e.commitDetailView = nil
-		e.graphDetailFocus = false
-		idx := e.tabs.ActiveIndex()
-		e.tabs.Close(idx)
-		if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
-			e.OpenEmpty()
-		}
-		e.syncViewToTab()
-		return
-	}
-
-	if tab.Kind == TabKindDiff {
-		e.diffView = nil
+		e.graphDiffView = nil
+		e.graphFocus = 0
 		idx := e.tabs.ActiveIndex()
 		e.tabs.Close(idx)
 		if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
