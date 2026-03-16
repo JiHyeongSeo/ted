@@ -11,6 +11,7 @@ type TabKind int
 const (
 	TabKindFile  TabKind = iota // file editing tab
 	TabKindGraph                // git graph tab
+	TabKindDiff                 // side-by-side diff tab
 )
 
 // TabInfo holds the state of a single editor tab.

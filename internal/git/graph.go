@@ -94,6 +94,17 @@ func ShowCommit(repoRoot, hash string) (string, error) {
 	return string(out), nil
 }
 
+// FileAtCommit returns the contents of a file at a specific commit.
+// Returns empty string if the file doesn't exist at that commit.
+func FileAtCommit(repoRoot, hash, path string) (string, error) {
+	cmd := exec.Command("git", "-C", repoRoot, "show", hash+":"+path)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", nil // file might not exist at this commit (e.g. newly added)
+	}
+	return string(out), nil
+}
+
 // LoadChangedFiles returns the list of changed files for a commit.
 func LoadChangedFiles(repoRoot, hash string) ([]string, error) {
 	cmd := exec.Command("git", "-C", repoRoot, "diff-tree",

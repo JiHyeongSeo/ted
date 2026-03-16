@@ -9,23 +9,41 @@ import (
 	"github.com/seoji/ted/internal/syntax"
 )
 
-// CommitDetailView displays details of a selected commit.
+// CommitDetailView displays details of a selected commit with selectable file list.
 type CommitDetailView struct {
 	BaseComponent
-	theme   *syntax.Theme
-	commit  *git.Commit
-	files   []string // "M\tpath/to/file" format
-	scrollY int
+	theme       *syntax.Theme
+	commit      *git.Commit
+	files       []string // "M\tpath/to/file" format
+	scrollY     int
+	selectedIdx int // selected file index (-1 = none)
+	onFileEnter func(commit *git.Commit, fileLine string)
 }
 
 func NewCommitDetailView(theme *syntax.Theme) *CommitDetailView {
-	return &CommitDetailView{theme: theme}
+	return &CommitDetailView{theme: theme, selectedIdx: -1}
 }
 
 func (cv *CommitDetailView) SetCommit(commit *git.Commit, files []string) {
 	cv.commit = commit
 	cv.files = files
 	cv.scrollY = 0
+	if len(files) > 0 {
+		cv.selectedIdx = 0
+	} else {
+		cv.selectedIdx = -1
+	}
+}
+
+// SetOnFileEnter sets callback when Enter is pressed on a file.
+func (cv *CommitDetailView) SetOnFileEnter(fn func(commit *git.Commit, fileLine string)) {
+	cv.onFileEnter = fn
+}
+
+// headerLines returns how many lines the header takes (before the file list).
+func (cv *CommitDetailView) headerLines() int {
+	// separator(1) + "Commit Details"(1) + hash(1) + message(1) + author(1) + blank(1) + "Changed files"(1) = 7
+	return 7
 }
 
 func (cv *CommitDetailView) Render(screen tcell.Screen) {
@@ -44,6 +62,7 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 	addedStyle := defaultStyle.Foreground(tcell.ColorGreen)
 	removedStyle := defaultStyle.Foreground(tcell.ColorRed)
 	modifiedStyle := defaultStyle.Foreground(tcell.ColorYellow)
+	selectedBg := defaultStyle.Background(tcell.ColorNavy)
 
 	// Clear area
 	for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {
@@ -90,7 +109,7 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 	y++ // blank line
 
 	if y < bounds.Y+bounds.Height {
-		filesHeader := fmt.Sprintf("Changed files (%d):", len(cv.files))
+		filesHeader := fmt.Sprintf("Changed files (%d)  [↑↓ select, Enter to diff]:", len(cv.files))
 		cv.drawLine(screen, bounds.X+1, y, bounds.Width-1, filesHeader, dimStyle)
 		y++
 	}
@@ -108,6 +127,19 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 				style = modifiedStyle
 			}
 		}
+
+		// Highlight selected file
+		if i == cv.selectedIdx {
+			// Fill row with selected background
+			for x := bounds.X; x < bounds.X+bounds.Width; x++ {
+				screen.SetContent(x, y, ' ', nil, selectedBg)
+			}
+			fg, _, _ := style.Decompose()
+			style = selectedBg.Foreground(fg)
+			// Draw selection indicator
+			screen.SetContent(bounds.X+1, y, '▸', nil, style)
+		}
+
 		cv.drawLine(screen, bounds.X+3, y, bounds.Width-3, line, style)
 		y++
 	}
@@ -125,32 +157,89 @@ func (cv *CommitDetailView) drawLine(screen tcell.Screen, x, y, maxWidth int, te
 	}
 }
 
+// Decompose helper — tcell.Style doesn't have a Decompose that returns Fg directly,
+// so we use a simpler approach in Render.
+
 func (cv *CommitDetailView) HandleEvent(ev tcell.Event) bool {
 	switch tev := ev.(type) {
+	case *tcell.EventKey:
+		return cv.handleKey(tev)
 	case *tcell.EventMouse:
-		bounds := cv.Bounds()
-		mx, my := tev.Position()
-		if mx < bounds.X || mx >= bounds.X+bounds.Width || my < bounds.Y || my >= bounds.Y+bounds.Height {
-			return false
+		return cv.handleMouse(tev)
+	}
+	return false
+}
+
+func (cv *CommitDetailView) handleKey(ev *tcell.EventKey) bool {
+	if len(cv.files) == 0 {
+		return false
+	}
+	switch ev.Key() {
+	case tcell.KeyUp:
+		if cv.selectedIdx > 0 {
+			cv.selectedIdx--
+			cv.ensureFileVisible()
 		}
-		maxScroll := len(cv.files) - (bounds.Height - 6)
-		if maxScroll < 0 {
-			maxScroll = 0
+		return true
+	case tcell.KeyDown:
+		if cv.selectedIdx < len(cv.files)-1 {
+			cv.selectedIdx++
+			cv.ensureFileVisible()
 		}
-		if tev.Buttons()&tcell.WheelUp != 0 {
-			cv.scrollY -= 3
-			if cv.scrollY < 0 {
-				cv.scrollY = 0
-			}
-			return true
+		return true
+	case tcell.KeyEnter:
+		if cv.selectedIdx >= 0 && cv.selectedIdx < len(cv.files) && cv.onFileEnter != nil {
+			cv.onFileEnter(cv.commit, cv.files[cv.selectedIdx])
 		}
-		if tev.Buttons()&tcell.WheelDown != 0 {
-			cv.scrollY += 3
-			if cv.scrollY > maxScroll {
-				cv.scrollY = maxScroll
-			}
-			return true
+		return true
+	}
+	return false
+}
+
+func (cv *CommitDetailView) ensureFileVisible() {
+	visibleFiles := cv.Bounds().Height - cv.headerLines()
+	if visibleFiles <= 0 {
+		return
+	}
+	if cv.selectedIdx < cv.scrollY {
+		cv.scrollY = cv.selectedIdx
+	}
+	if cv.selectedIdx >= cv.scrollY+visibleFiles {
+		cv.scrollY = cv.selectedIdx - visibleFiles + 1
+	}
+}
+
+func (cv *CommitDetailView) handleMouse(ev *tcell.EventMouse) bool {
+	bounds := cv.Bounds()
+	mx, my := ev.Position()
+	if mx < bounds.X || mx >= bounds.X+bounds.Width || my < bounds.Y || my >= bounds.Y+bounds.Height {
+		return false
+	}
+	maxScroll := len(cv.files) - (bounds.Height - cv.headerLines())
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if ev.Buttons()&tcell.WheelUp != 0 {
+		cv.scrollY -= 3
+		if cv.scrollY < 0 {
+			cv.scrollY = 0
 		}
+		return true
+	}
+	if ev.Buttons()&tcell.WheelDown != 0 {
+		cv.scrollY += 3
+		if cv.scrollY > maxScroll {
+			cv.scrollY = maxScroll
+		}
+		return true
+	}
+	// Click to select file
+	if ev.Buttons()&tcell.Button1 != 0 {
+		fileRow := my - bounds.Y - cv.headerLines() + cv.scrollY
+		if fileRow >= 0 && fileRow < len(cv.files) {
+			cv.selectedIdx = fileRow
+		}
+		return true
 	}
 	return false
 }

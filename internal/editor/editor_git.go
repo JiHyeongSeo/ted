@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -186,18 +187,43 @@ func (e *Editor) gitOpenGraph() {
 		return
 	}
 
+	// Check for uncommitted changes and prepend virtual commit
+	statusEntries, _ := e.diffTracker.Status()
+	if len(statusEntries) > 0 {
+		uncommitted := git.Commit{
+			Hash:      "uncommitted",
+			ShortHash: "•••••••",
+			Message:   "Uncommitted Changes",
+			Author:    "",
+		}
+		if len(commits) > 0 {
+			uncommitted.Parents = []string{commits[0].Hash}
+		}
+		commits = append([]git.Commit{uncommitted}, commits...)
+	}
+
 	// Create graph views
 	rows := git.LayoutGraph(commits)
 	e.graphView = view.NewGraphView(e.theme, rows)
 	e.commitDetailView = view.NewCommitDetailView(e.theme)
 
 	// Set up selection callback
+	repoRoot := e.diffTracker.RepoRoot()
 	e.graphView.SetOnSelect(func(commit *git.Commit) {
 		if commit == nil {
 			e.commitDetailView.SetCommit(nil, nil)
 			return
 		}
-		files, _ := git.LoadChangedFiles(e.diffTracker.RepoRoot(), commit.Hash)
+		if commit.Hash == "uncommitted" {
+			// Show working tree changes
+			var files []string
+			for _, entry := range statusEntries {
+				files = append(files, entry.Status+"\t"+entry.Path)
+			}
+			e.commitDetailView.SetCommit(commit, files)
+			return
+		}
+		files, _ := git.LoadChangedFiles(repoRoot, commit.Hash)
 		e.commitDetailView.SetCommit(commit, files)
 	})
 
@@ -215,6 +241,48 @@ func (e *Editor) gitOpenGraph() {
 		e.panel.SetContent(1, lines) // Output tab
 		e.panel.SetActiveTab(1)
 		e.layout.SetPanelVisible(true)
+	})
+
+	// Set up file Enter callback — open side-by-side diff in new tab
+	e.commitDetailView.SetOnFileEnter(func(commit *git.Commit, fileLine string) {
+		if commit == nil || fileLine == "" {
+			return
+		}
+		// Parse "M\tpath/to/file" format
+		parts := strings.SplitN(fileLine, "\t", 2)
+		if len(parts) < 2 {
+			return
+		}
+		status := parts[0]
+		filePath := parts[1]
+
+		var oldText, newText string
+
+		if commit.Hash == "uncommitted" {
+			// Uncommitted: compare HEAD vs working tree
+			oldText, _ = git.FileAtCommit(repoRoot, "HEAD", filePath)
+			fullPath := filepath.Join(repoRoot, filePath)
+			data, err := os.ReadFile(fullPath)
+			if err == nil {
+				newText = string(data)
+			}
+		} else if status == "A" || status == "?" || status == "??" {
+			oldText = ""
+			newText, _ = git.FileAtCommit(repoRoot, commit.Hash, filePath)
+		} else if status == "D" {
+			oldText, _ = git.FileAtCommit(repoRoot, commit.Hash+"~1", filePath)
+			newText = ""
+		} else {
+			oldText, _ = git.FileAtCommit(repoRoot, commit.Hash+"~1", filePath)
+			newText, _ = git.FileAtCommit(repoRoot, commit.Hash, filePath)
+		}
+
+		title := fmt.Sprintf("%s (%s)", filepath.Base(filePath), commit.ShortHash)
+		e.diffView = view.NewDiffView(e.theme, oldText, newText, title)
+		e.tabs.Open(buffer.NewBuffer(""), filePath)
+		e.tabs.Active().Kind = TabKindDiff
+		e.syncViewToTab()
+		e.statusBar.SetMessage(fmt.Sprintf("Diff: %s", filePath))
 	})
 
 	// Select first commit
