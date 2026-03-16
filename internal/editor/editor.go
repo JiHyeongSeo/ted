@@ -686,11 +686,6 @@ func (e *Editor) render() {
 				} else {
 					graphHeight := r.Height * 7 / 10
 					detailHeight := r.Height - graphHeight
-					if e.graphFocus == 1 {
-						// When files focused, give more space to detail
-						graphHeight = r.Height * 4 / 10
-						detailHeight = r.Height - graphHeight
-					}
 
 					graphRect := types.Rect{X: r.X, Y: r.Y, Width: r.Width, Height: graphHeight}
 					detailRect := types.Rect{X: r.X, Y: r.Y + graphHeight, Width: r.Width, Height: detailHeight}
