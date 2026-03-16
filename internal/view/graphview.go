@@ -128,6 +128,14 @@ func (gv *GraphView) Render(screen tcell.Screen) {
 		}
 	}
 
+	// Draw focus indicator — left border bar
+	if gv.IsFocused() {
+		focusStyle := defaultStyle.Background(tcell.ColorSteelBlue)
+		for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {
+			screen.SetContent(bounds.X, y, ' ', nil, focusStyle)
+		}
+	}
+
 	if len(gv.rows) == 0 {
 		msg := "No commits yet"
 		x := bounds.X + (bounds.Width-len(msg))/2

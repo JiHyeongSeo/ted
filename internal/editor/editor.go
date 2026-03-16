@@ -466,6 +466,10 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				return
 			}
 		default: // 0: graph
+			if ev.Key() == tcell.KeyEscape {
+				e.closeCurrentTab()
+				return
+			}
 			if ev.Key() == tcell.KeyEnter {
 				e.graphFocus = 1 // move to file list
 				return

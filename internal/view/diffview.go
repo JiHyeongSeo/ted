@@ -146,14 +146,14 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 		}
 
 		// Draw left side
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle, dl.Kind)
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, leftStyle, lineNumStyle)
 
 		// Draw right side
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle, dl.Kind)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, rightStyle, lineNumStyle)
 	}
 }
 
-func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style, kind DiffLineKind) {
+func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, textStyle, numStyle tcell.Style) {
 	// Clear the side
 	for x := startX; x < startX+lineNumW+textW; x++ {
 		screen.SetContent(x, y, ' ', nil, textStyle)
@@ -202,16 +202,8 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		}
 
 		style := textStyle
-		// Apply syntax highlighting: use token foreground but keep diff background
-		if len(tokens) > 0 && kind == DiffEqual {
-			for _, token := range tokens {
-				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
-					style = dv.highlighter.StyleForToken(token.Type)
-					break
-				}
-			}
-		} else if len(tokens) > 0 {
-			// For diff lines, apply token foreground but preserve diff background
+		// Apply syntax highlighting: always preserve diff background color
+		if len(tokens) > 0 {
 			for _, token := range tokens {
 				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
 					tokenStyle := dv.highlighter.StyleForToken(token.Type)
