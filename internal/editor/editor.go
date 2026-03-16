@@ -1380,6 +1380,8 @@ func (e *Editor) ExecuteCommand(name string) error {
 		}
 	case "editor.format":
 		e.formatCurrentBuffer()
+	case "editor.selectLanguage":
+		e.selectLanguage()
 	case "file.close":
 		e.closeCurrentTab()
 	case "edit.undo":
@@ -1754,6 +1756,57 @@ func (e *Editor) formatCurrentBuffer() {
 }
 
 // byteColToRuneCol converts a byte offset to a rune count within a string.
+// knownLanguages is the list shown in the language selector.
+var knownLanguages = []string{
+	"text",
+	"go",
+	"python",
+	"javascript",
+	"typescript",
+	"json",
+	"html",
+	"css",
+	"scss",
+	"sql",
+	"bash",
+	"rust",
+	"c",
+	"cpp",
+	"java",
+	"ruby",
+	"markdown",
+	"yaml",
+	"toml",
+}
+
+// selectLanguage opens a list picker to manually set the current tab's language.
+func (e *Editor) selectLanguage() {
+	tab := e.tabs.Active()
+	if tab == nil {
+		return
+	}
+	// Mark current language with *
+	displayed := make([]string, len(knownLanguages))
+	for i, lang := range knownLanguages {
+		if lang == tab.Language {
+			displayed[i] = "* " + lang
+		} else {
+			displayed[i] = "  " + lang
+		}
+	}
+	e.listPicker.Show("Select language mode", displayed)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(item string) {
+		lang := strings.TrimSpace(strings.TrimLeft(item, "* "))
+		tab.Language = lang
+		if e.editorView != nil {
+			e.editorView.SetLanguage(lang)
+			e.editorView.ReparseHighlighting()
+		}
+		e.statusBar.SetMessage("Language set to: " + lang)
+	})
+}
+
 func byteColToRuneCol(s string, byteCol int) int {
 	if byteCol >= len(s) {
 		byteCol = len(s)

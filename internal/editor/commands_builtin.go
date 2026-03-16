@@ -35,8 +35,16 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 	})
 
 	reg.Register(&Command{
+		Name:        "editor.selectLanguage",
+		Description: "Change language mode for syntax highlighting and formatting",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("editor.selectLanguage")
+		},
+	})
+
+	reg.Register(&Command{
 		Name:        "editor.format",
-		Description: "Format/Beautify document (JSON built-in; HTML/CSS/JS via prettier; Go via gofmt; Python via black; SQL via sqlformat)",
+		Description: "Format/Beautify document (JSON built-in; HTML/CSS/JS/TS via prettier; SQL via sqlformat)",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("editor.format")
 		},

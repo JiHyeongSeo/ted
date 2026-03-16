@@ -5,41 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
 // formatDocument formats content for the given language/file path.
 // Returns the formatted string or an error if formatting fails or is unsupported.
 func formatDocument(content, language, filePath string) (string, error) {
-	ext := ""
-	if filePath != "" {
-		ext = strings.ToLower(filepath.Ext(filePath))
-	}
-
-	switch {
-	case language == "json" || ext == ".json":
+	switch language {
+	case "json":
 		return formatJSON(content)
-	case language == "go" || ext == ".go":
-		return formatViaStdin(content, "gofmt")
-	case language == "python" || ext == ".py":
-		return formatViaStdin(content, "black", "-q", "-")
-	case language == "html" || ext == ".html" || ext == ".htm":
+	case "html":
 		return formatViaPrettier(content, filePath, "html")
-	case language == "css" || ext == ".css" || ext == ".scss" || ext == ".less":
+	case "css", "scss", "less":
 		return formatViaPrettier(content, filePath, "css")
-	case language == "javascript" || ext == ".js" || ext == ".jsx":
+	case "javascript":
 		return formatViaPrettier(content, filePath, "babel")
-	case language == "typescript" || ext == ".ts" || ext == ".tsx":
+	case "typescript":
 		return formatViaPrettier(content, filePath, "typescript")
-	case language == "sql" || ext == ".sql":
+	case "sql":
 		return formatSQL(content)
 	default:
-		lang := language
-		if lang == "" {
-			lang = ext
-		}
-		return "", fmt.Errorf("no formatter available for '%s'", lang)
+		return "", fmt.Errorf("no formatter available for '%s' — change language mode first if needed", language)
 	}
 }
 
