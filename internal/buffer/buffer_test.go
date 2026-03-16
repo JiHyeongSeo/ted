@@ -278,6 +278,42 @@ func TestIncrementalMatchesFull(t *testing.T) {
 	}
 }
 
+func TestOpenLargeFile(t *testing.T) {
+	f, err := os.CreateTemp("", "ted-large-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+
+	line := "This is a test line for large file handling in ted editor.\n"
+	for i := 0; i < 200000; i++ {
+		f.WriteString(line)
+	}
+	f.Close()
+
+	buf, err := OpenFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer buf.Close()
+
+	// 200000 lines with newlines = 200001 line offsets (last empty line after final \n)
+	expectedLines := 200001
+	if buf.LineCount() != expectedLines {
+		t.Errorf("expected %d lines, got %d", expectedLines, buf.LineCount())
+	}
+
+	first := buf.Line(0)
+	expected := "This is a test line for large file handling in ted editor."
+	if first != expected {
+		t.Errorf("unexpected first line: %q", first)
+	}
+	last := buf.Line(199999)
+	if last != expected {
+		t.Errorf("unexpected last line: %q", last)
+	}
+}
+
 // Benchmarks to demonstrate performance improvement
 
 func BenchmarkIncrementalInsert(b *testing.B) {

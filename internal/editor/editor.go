@@ -1361,6 +1361,7 @@ func (e *Editor) closeCurrentTab() {
 			lsp.DidClose(client, lsp.FileURIFromPath(tab.Buffer.Path()))
 		}
 	}
+	tab.Buffer.Close()
 	idx := e.tabs.ActiveIndex()
 	e.tabs.Close(idx)
 	if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
