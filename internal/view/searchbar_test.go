@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/search"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/search"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 func TestSearchBarShowHide(t *testing.T) {

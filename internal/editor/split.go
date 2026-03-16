@@ -1,8 +1,8 @@
 package editor
 
 import (
-	"github.com/seoji/ted/internal/buffer"
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/buffer"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 // Pane identifies which pane is active.

@@ -5,7 +5,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 // Tooltip renders a multi-line text popup near the cursor.

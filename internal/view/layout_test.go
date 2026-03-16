@@ -3,7 +3,7 @@ package view
 import (
 	"testing"
 
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 func TestLayoutDefault(t *testing.T) {

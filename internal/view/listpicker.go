@@ -5,8 +5,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/seoji/ted/internal/syntax"
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 

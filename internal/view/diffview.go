@@ -7,7 +7,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 // DiffLineKind indicates the type of a diff line.

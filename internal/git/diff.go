@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 // DiffTracker computes git diff markers for files in a repository.

@@ -3,7 +3,7 @@ package git
 import (
 	"testing"
 
-	"github.com/seoji/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
 func TestParseHunks_PureAddition(t *testing.T) {

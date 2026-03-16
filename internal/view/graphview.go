@@ -6,8 +6,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/seoji/ted/internal/git"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/git"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 // BranchColors defines the color palette for graph branches.

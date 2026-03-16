@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 func TestSidebarSetRoot(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"os"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/seoji/ted/internal/config"
-	"github.com/seoji/ted/internal/editor"
-	"github.com/seoji/ted/internal/syntax"
+	"github.com/JiHyeongSeo/ted/internal/config"
+	"github.com/JiHyeongSeo/ted/internal/editor"
+	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
 var version = "dev"
