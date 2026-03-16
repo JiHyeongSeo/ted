@@ -571,7 +571,18 @@ func (p *CommandPalette) loadDirItems() {
 		return
 	}
 
+	// Always show the current directory itself as the first selectable item
+	currentDesc := browseDir
+	if strings.HasPrefix(currentDesc, home) {
+		currentDesc = "~" + currentDesc[len(home):]
+	}
 	var items []PaletteItem
+	items = append(items, PaletteItem{
+		Label:       ". (here)",
+		FilePath:    browseDir,
+		Description: currentDesc,
+	})
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
