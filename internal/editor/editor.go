@@ -951,7 +951,15 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
 	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
-	// split keybindings are loaded from keybindings.json
+	// Load additional keybindings from JSON config file
+	configDir := config.DefaultUserConfigDir()
+	// Try project-local config first, then user config
+	for _, dir := range []string{".", configDir} {
+		path := filepath.Join(dir, "configs", "keybindings.json")
+		if _, err := os.Stat(path); err == nil {
+			e.keymap.LoadFromFile(path)
+		}
+	}
 }
 
 // --- EditorContext interface implementation ---
