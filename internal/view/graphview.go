@@ -29,8 +29,7 @@ type GraphView struct {
 	rows        []git.GraphRow
 	selectedIdx int
 	scrollY     int
-	onSelect    func(commit *git.Commit)
-	onEnter     func(commit *git.Commit)
+	onSelect func(commit *git.Commit)
 }
 
 func NewGraphView(theme *syntax.Theme, rows []git.GraphRow) *GraphView {
@@ -44,9 +43,6 @@ func (gv *GraphView) SetOnSelect(fn func(commit *git.Commit)) {
 	gv.onSelect = fn
 }
 
-func (gv *GraphView) SetOnEnter(fn func(commit *git.Commit)) {
-	gv.onEnter = fn
-}
 
 func (gv *GraphView) SelectedIndex() int { return gv.selectedIdx }
 func (gv *GraphView) ScrollY() int       { return gv.scrollY }
@@ -354,14 +350,6 @@ func (gv *GraphView) handleKey(ev *tcell.EventKey) bool {
 			gv.selectedIdx = len(gv.rows) - 1
 			gv.ensureVisible()
 			gv.notifySelect()
-		}
-		return true
-	case tcell.KeyEnter:
-		if gv.onEnter != nil {
-			c := gv.SelectedCommit()
-			if c != nil {
-				gv.onEnter(c)
-			}
 		}
 		return true
 	}
