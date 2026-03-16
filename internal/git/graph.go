@@ -84,6 +84,17 @@ func LoadCommits(repoRoot string, maxCount int) ([]Commit, error) {
 	return ParseCommits(string(out))
 }
 
+// ShowCommit returns the full git show output for a commit.
+func ShowCommit(repoRoot, hash string) (string, error) {
+	cmd := exec.Command("git", "-C", repoRoot, "show",
+		"--stat", "--format=commit %H%nAuthor: %an <%ae>%nDate:   %ai%n%n    %s%n%w(0,4,4)%b", hash)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git show: %w", err)
+	}
+	return string(out), nil
+}
+
 // LoadChangedFiles returns the list of changed files for a commit.
 func LoadChangedFiles(repoRoot, hash string) ([]string, error) {
 	cmd := exec.Command("git", "-C", repoRoot, "diff-tree",
