@@ -115,6 +115,14 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.palette.SetOnFileOpen(func(path string) {
 		e.OpenFile(path)
 	})
+	e.palette.SetOnBufferOpen(func(path string) {
+		// Find the tab with this path and switch to it
+		idx := e.tabs.FindByPath(path)
+		if idx >= 0 {
+			e.tabs.SetActive(idx)
+			e.syncViewToTab()
+		}
+	})
 	e.palette.SetOnGoToLine(func(line int) {
 		if e.editorView != nil {
 			e.editorView.SetCursorPosition(types.Position{Line: line - 1, Col: 0})
@@ -957,6 +965,22 @@ func (e *Editor) ExecuteCommand(name string) error {
 			}
 		}
 	case "palette.open":
+		// Populate buffer items from open tabs
+		var bufferItems []view.PaletteItem
+		for _, tab := range e.tabs.All() {
+			if tab.Buffer != nil {
+				path := tab.Buffer.Path()
+				label := filepath.Base(path)
+				if label == "" {
+					label = "[Untitled]"
+				}
+				bufferItems = append(bufferItems, view.PaletteItem{
+					Label:    label,
+					FilePath: path,
+				})
+			}
+		}
+		e.palette.SetBufferItems(bufferItems)
 		e.palette.Show()
 	case "search.find":
 		e.searchBar.Show(false)

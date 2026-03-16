@@ -233,3 +233,25 @@ func TestMatchPositionSet(t *testing.T) {
 		t.Error("expected position 2 to be in set")
 	}
 }
+
+func TestDetectModeBuffer(t *testing.T) {
+	p := NewCommandPalette(nil)
+
+	p.query = "#"
+	p.detectMode()
+	if p.mode != PaletteModeBuffer {
+		t.Errorf("expected PaletteModeBuffer, got %d", p.mode)
+	}
+
+	p.query = "#main"
+	p.detectMode()
+	if p.mode != PaletteModeBuffer {
+		t.Errorf("expected PaletteModeBuffer for '#main', got %d", p.mode)
+	}
+
+	p.query = "test"
+	p.detectMode()
+	if p.mode != PaletteModeFile {
+		t.Errorf("expected PaletteModeFile for 'test', got %d", p.mode)
+	}
+}
