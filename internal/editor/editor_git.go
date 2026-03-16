@@ -267,11 +267,19 @@ func (e *Editor) gitOpenGraph() {
 		e.statusBar.SetMessage(fmt.Sprintf("Diff: %s  (Esc to go back)", filePath))
 	})
 
-	// Select first commit
+	// Select first commit — trigger the same logic as onSelect
 	if len(rows) > 0 {
 		first := rows[0].Commit
-		files, _ := git.LoadChangedFiles(e.diffTracker.RepoRoot(), first.Hash)
-		e.commitDetailView.SetCommit(first, files)
+		if first.Hash == "uncommitted" {
+			var files []string
+			for _, entry := range statusEntries {
+				files = append(files, entry.Status+"\t"+entry.Path)
+			}
+			e.commitDetailView.SetCommit(first, files)
+		} else {
+			files, _ := git.LoadChangedFiles(repoRoot, first.Hash)
+			e.commitDetailView.SetCommit(first, files)
+		}
 	}
 
 	// Open tab and focus graph
