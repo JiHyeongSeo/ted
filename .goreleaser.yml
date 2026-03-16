@@ -4,7 +4,7 @@ builds:
   - main: ./cmd/ted
     binary: ted
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w
     goos:
       - linux
       - darwin
