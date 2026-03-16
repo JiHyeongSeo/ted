@@ -215,12 +215,14 @@ func (e *Editor) gitOpenGraph() {
 			return
 		}
 		if commit.Hash == "uncommitted" {
-			// Show working tree changes
+			// Show working tree changes with staged info
 			var files []string
+			var staged []bool
 			for _, entry := range statusEntries {
 				files = append(files, entry.Status+"\t"+entry.Path)
+				staged = append(staged, entry.Staged)
 			}
-			e.commitDetailView.SetCommit(commit, files)
+			e.commitDetailView.SetCommitWithStaged(commit, files, staged)
 			return
 		}
 		files, _ := git.LoadChangedFiles(repoRoot, commit.Hash)
@@ -272,10 +274,12 @@ func (e *Editor) gitOpenGraph() {
 		first := rows[0].Commit
 		if first.Hash == "uncommitted" {
 			var files []string
+			var staged []bool
 			for _, entry := range statusEntries {
 				files = append(files, entry.Status+"\t"+entry.Path)
+				staged = append(staged, entry.Staged)
 			}
-			e.commitDetailView.SetCommit(first, files)
+			e.commitDetailView.SetCommitWithStaged(first, files, staged)
 		} else {
 			files, _ := git.LoadChangedFiles(repoRoot, first.Hash)
 			e.commitDetailView.SetCommit(first, files)
@@ -310,36 +314,51 @@ func (e *Editor) graphGitCommit() {
 			e.statusBar.SetMessage("Commit aborted: empty message")
 			return
 		}
-		out, err := e.diffTracker.Commit(msg)
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-			return
-		}
-		lines := strings.Split(out, "\n")
-		e.statusBar.SetMessage("Committed: " + lines[0])
-		e.graphRefresh()
+		e.statusBar.SetMessage("Committing...")
+		go func() {
+			out, err := e.diffTracker.Commit(msg)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				lines := strings.Split(out, "\n")
+				e.statusBar.SetMessage("Committed: " + lines[0])
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
 	})
 }
 
-// graphGitPush pushes to remote from graph view.
+// graphGitPush pushes to remote from graph view with confirmation.
 func (e *Editor) graphGitPush() {
 	if e.diffTracker == nil {
 		return
 	}
-	e.statusBar.SetMessage("Pushing...")
-	go func() {
-		out, err := e.diffTracker.Push()
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-		} else if out != "" {
-			e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
-		} else {
-			e.statusBar.SetMessage("Pushed successfully")
+	branch := e.diffTracker.CurrentBranch()
+	e.inputBar.Show(fmt.Sprintf("Push %s to origin? (y/n): ", branch))
+	e.inputBar.SetOnSubmit(func(answer string) {
+		e.inputBar.Hide()
+		if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+			e.statusBar.SetMessage("Push cancelled")
+			return
 		}
-		if e.screen != nil {
-			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
-		}
-	}()
+		e.statusBar.SetMessage("Pushing...")
+		go func() {
+			out, err := e.diffTracker.Push()
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else if out != "" {
+				e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
+			} else {
+				e.statusBar.SetMessage("Pushed successfully")
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
 }
 
 // graphGitPull pulls from remote and refreshes graph.
@@ -381,13 +400,18 @@ func (e *Editor) graphGitTag() {
 			e.statusBar.SetMessage("Tag aborted: empty name")
 			return
 		}
-		_, err := e.diffTracker.Tag(name, commit.Hash)
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-			return
-		}
-		e.statusBar.SetMessage(fmt.Sprintf("Tagged %s as %s", commit.ShortHash, name))
-		e.graphRefresh()
+		go func() {
+			_, err := e.diffTracker.Tag(name, commit.Hash)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				e.statusBar.SetMessage(fmt.Sprintf("Tagged %s as %s", commit.ShortHash, name))
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
 	})
 }
 
@@ -415,14 +439,28 @@ func (e *Editor) graphGitMerge() {
 	}
 	e.listPicker.Show(fmt.Sprintf("Merge into %s", current), others)
 	e.listPicker.SetOnSelect(func(branch string) {
-		out, err := e.diffTracker.Merge(branch)
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-			return
-		}
-		first := strings.Split(out, "\n")[0]
-		e.statusBar.SetMessage("Merge: " + first)
-		e.graphRefresh()
+		e.inputBar.Show(fmt.Sprintf("Merge %s into %s? (y/n): ", branch, current))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				e.statusBar.SetMessage("Merge cancelled")
+				return
+			}
+			e.statusBar.SetMessage("Merging " + branch + "...")
+			go func() {
+				out, err := e.diffTracker.Merge(branch)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+				} else {
+					first := strings.Split(out, "\n")[0]
+					e.statusBar.SetMessage("Merge: " + first)
+					e.graphRefresh()
+				}
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+			}()
+		})
 	})
 	e.listPicker.SetOnCancel(func() {
 		e.statusBar.SetMessage("Merge cancelled")
@@ -452,14 +490,28 @@ func (e *Editor) graphGitRebase() {
 	}
 	e.listPicker.Show(fmt.Sprintf("Rebase %s onto", current), others)
 	e.listPicker.SetOnSelect(func(target string) {
-		out, err := e.diffTracker.Rebase(target)
-		if err != nil {
-			e.statusBar.SetMessage(err.Error())
-			return
-		}
-		first := strings.Split(out, "\n")[0]
-		e.statusBar.SetMessage("Rebase: " + first)
-		e.graphRefresh()
+		e.inputBar.Show(fmt.Sprintf("Rebase %s onto %s? (y/n): ", current, target))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				e.statusBar.SetMessage("Rebase cancelled")
+				return
+			}
+			e.statusBar.SetMessage("Rebasing onto " + target + "...")
+			go func() {
+				out, err := e.diffTracker.Rebase(target)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+				} else {
+					first := strings.Split(out, "\n")[0]
+					e.statusBar.SetMessage("Rebase: " + first)
+					e.graphRefresh()
+				}
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+			}()
+		})
 	})
 	e.listPicker.SetOnCancel(func() {
 		e.statusBar.SetMessage("Rebase cancelled")
@@ -471,14 +523,20 @@ func (e *Editor) graphGitStash() {
 	if e.diffTracker == nil {
 		return
 	}
-	out, err := e.diffTracker.Stash()
-	if err != nil {
-		e.statusBar.SetMessage(err.Error())
-		return
-	}
-	first := strings.Split(out, "\n")[0]
-	e.statusBar.SetMessage("Stash: " + first)
-	e.graphRefresh()
+	e.statusBar.SetMessage("Stashing...")
+	go func() {
+		out, err := e.diffTracker.Stash()
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else {
+			first := strings.Split(out, "\n")[0]
+			e.statusBar.SetMessage("Stash: " + first)
+			e.graphRefresh()
+		}
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
 }
 
 // graphGitStashPop pops the most recent stash.
@@ -486,14 +544,20 @@ func (e *Editor) graphGitStashPop() {
 	if e.diffTracker == nil {
 		return
 	}
-	out, err := e.diffTracker.StashPop()
-	if err != nil {
-		e.statusBar.SetMessage(err.Error())
-		return
-	}
-	first := strings.Split(out, "\n")[0]
-	e.statusBar.SetMessage("Stash pop: " + first)
-	e.graphRefresh()
+	e.statusBar.SetMessage("Popping stash...")
+	go func() {
+		out, err := e.diffTracker.StashPop()
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else {
+			first := strings.Split(out, "\n")[0]
+			e.statusBar.SetMessage("Stash pop: " + first)
+			e.graphRefresh()
+		}
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
 }
 
 // graphGitStageAll stages all changes from graph view.
@@ -501,12 +565,15 @@ func (e *Editor) graphGitStageAll() {
 	if e.diffTracker == nil {
 		return
 	}
-	if err := e.diffTracker.StageAll(); err != nil {
-		e.statusBar.SetMessage(err.Error())
-		return
-	}
-	e.statusBar.SetMessage("Staged all changes")
-	e.graphRefresh()
+	e.statusBar.SetMessage("Staging all...")
+	go func() {
+		if err := e.diffTracker.StageAll(); err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else {
+			e.statusBar.SetMessage("Staged all changes")
+		}
+		e.sendGraphFileUpdate()
+	}()
 }
 
 // graphGitUnstageFile unstages the currently selected file.
@@ -524,12 +591,14 @@ func (e *Editor) graphGitUnstageFile() {
 	}
 	filePath := parts[1]
 
-	if err := e.diffTracker.UnstageFile(filePath); err != nil {
-		e.statusBar.SetMessage(err.Error())
-		return
-	}
-	e.statusBar.SetMessage(fmt.Sprintf("Unstaged: %s", filePath))
-	e.graphRefreshUncommitted()
+	go func() {
+		if err := e.diffTracker.UnstageFile(filePath); err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else {
+			e.statusBar.SetMessage(fmt.Sprintf("Unstaged: %s", filePath))
+		}
+		e.sendGraphFileUpdate()
+	}()
 }
 
 // graphRefreshUncommitted refreshes the uncommitted file list in the detail view.
@@ -541,10 +610,34 @@ func (e *Editor) graphRefreshUncommitted() {
 	if commit != nil && commit.Hash == "uncommitted" {
 		entries, _ := e.diffTracker.Status()
 		var files []string
+		var staged []bool
 		for _, entry := range entries {
 			files = append(files, entry.Status+"\t"+entry.Path)
+			staged = append(staged, entry.Staged)
 		}
-		e.commitDetailView.SetCommit(commit, files)
+		e.commitDetailView.UpdateFilesWithStaged(files, staged)
+	}
+}
+
+// sendGraphFileUpdate runs git status in the goroutine and sends results to main thread via channel.
+func (e *Editor) sendGraphFileUpdate() {
+	if e.diffTracker == nil {
+		return
+	}
+	entries, _ := e.diffTracker.Status()
+	var files []string
+	var staged []bool
+	for _, entry := range entries {
+		files = append(files, entry.Status+"\t"+entry.Path)
+		staged = append(staged, entry.Staged)
+	}
+	// Non-blocking send (drop if channel full — next update will refresh)
+	select {
+	case e.graphFileUpdates <- graphFileUpdate{files: files, staged: staged}:
+	default:
+	}
+	if e.screen != nil {
+		e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 	}
 }
 
@@ -563,12 +656,15 @@ func (e *Editor) graphGitStageFile() {
 	}
 	filePath := parts[1]
 
-	if err := e.diffTracker.StageFile(filepath.Join(e.diffTracker.RepoRoot(), filePath)); err != nil {
-		e.statusBar.SetMessage(err.Error())
-		return
-	}
-	e.statusBar.SetMessage(fmt.Sprintf("Staged: %s", filePath))
-	e.graphRefreshUncommitted()
+	go func() {
+		err := e.diffTracker.StageFile(filePath)
+		if err != nil {
+			e.statusBar.SetMessage(fmt.Sprintf("Stage error: %s", err.Error()))
+		} else {
+			e.statusBar.SetMessage(fmt.Sprintf("Staged: %s", filePath))
+		}
+		e.sendGraphFileUpdate()
+	}()
 }
 
 // gitToggleBlame toggles git blame display.

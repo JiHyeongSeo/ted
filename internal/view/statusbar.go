@@ -21,6 +21,7 @@ type StatusBar struct {
 	encoding   string
 	message    string // temporary message to display instead of normal info
 	pythonInfo string // e.g. "Python 3.12 (.venv)"
+	rightHint  string // right-aligned hint text (e.g. key bindings)
 }
 
 // NewStatusBar creates a new StatusBar.
@@ -64,6 +65,10 @@ func (sb *StatusBar) Render(screen tcell.Screen) {
 			}
 			screen.SetContent(x, bounds.Y, ch, nil, msgStyle)
 			x++
+		}
+		// Draw right hint even with message
+		if sb.rightHint != "" {
+			sb.drawRightHint(screen, bounds, style)
 		}
 		return
 	}
@@ -125,4 +130,42 @@ func (sb *StatusBar) SetMessage(msg string) {
 // ClearMessage clears the temporary message.
 func (sb *StatusBar) ClearMessage() {
 	sb.message = ""
+}
+
+// SetRightHint sets right-aligned hint text (e.g. key bindings for current mode).
+func (sb *StatusBar) SetRightHint(hint string) {
+	sb.rightHint = hint
+}
+
+func (sb *StatusBar) drawRightHint(screen tcell.Screen, bounds types.Rect, baseStyle tcell.Style) {
+	hint := sb.rightHint
+	// Draw each key:action pair with styled keys
+	hx := bounds.X + bounds.Width - len(hint) - 1
+	if hx < bounds.X+1 {
+		hx = bounds.X + 1
+	}
+	keyStyle := baseStyle.Foreground(tcell.ColorWhite).Bold(true)
+	sepStyle := baseStyle.Foreground(tcell.ColorDarkGray)
+	valStyle := baseStyle.Foreground(tcell.ColorGray)
+	inKey := true
+	for _, ch := range hint {
+		if hx >= bounds.X+bounds.Width {
+			break
+		}
+		switch {
+		case ch == ':':
+			screen.SetContent(hx, bounds.Y, ch, nil, sepStyle)
+			inKey = false
+		case ch == ' ':
+			screen.SetContent(hx, bounds.Y, ch, nil, baseStyle)
+			inKey = true
+		default:
+			if inKey {
+				screen.SetContent(hx, bounds.Y, ch, nil, keyStyle)
+			} else {
+				screen.SetContent(hx, bounds.Y, ch, nil, valStyle)
+			}
+		}
+		hx++
+	}
 }

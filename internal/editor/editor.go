@@ -22,6 +22,12 @@ import (
 	"github.com/seoji/ted/internal/view"
 )
 
+// graphFileUpdate carries refreshed file list data from goroutine to main thread.
+type graphFileUpdate struct {
+	files  []string
+	staged []bool
+}
+
 // Editor is the top-level editor state and event loop orchestrator.
 type Editor struct {
 	screen     tcell.Screen
@@ -60,9 +66,10 @@ type Editor struct {
 	graphView        *view.GraphView
 	commitDetailView *view.CommitDetailView
 	graphDiffView    *view.DiffView // inline diff within graph tab
-	graphFocus       int            // 0=graph, 1=files, 2=diff
-	listPicker       *view.ListPicker
-	pasteActive      bool
+	graphFocus         int // 0=graph, 1=files, 2=diff
+	graphFileUpdates   chan graphFileUpdate
+	listPicker         *view.ListPicker
+	pasteActive           bool
 }
 
 // New creates a new Editor instance.
@@ -100,6 +107,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.searchBar = view.NewSearchBar(theme)
 	e.inputBar = view.NewInputBar(theme)
 	e.listPicker = view.NewListPicker(theme)
+	e.graphFileUpdates = make(chan graphFileUpdate, 1)
 	e.autocomplete = view.NewAutocompletePopup(theme)
 	e.tooltip = view.NewTooltip(theme)
 	e.recentFiles = LoadRecentFiles()
@@ -339,8 +347,16 @@ func (e *Editor) Run(screen tcell.Screen) error {
 			e.handleMouseEvent(tev)
 			e.render()
 		case *tcell.EventInterrupt:
-			// Triggered by async LSP operations (autocomplete, hover)
+			// Triggered by async operations (LSP, git)
 			_ = tev
+			// Drain graph file updates from goroutines
+			select {
+			case upd := <-e.graphFileUpdates:
+				if e.commitDetailView != nil {
+					e.commitDetailView.UpdateFilesWithStaged(upd.files, upd.staged)
+				}
+			default:
+			}
 			e.render()
 		}
 	}
@@ -470,7 +486,7 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				e.graphFocus = 0 // back to graph
 				return
 			}
-			// Stage selected file with space or 'a'
+			// Stage file with space or 'a'
 			if ev.Key() == tcell.KeyRune && (ev.Rune() == ' ' || ev.Rune() == 'a') {
 				e.graphGitStageFile()
 				return
@@ -732,6 +748,15 @@ func (e *Editor) render() {
 		if r, ok := regions["editor"]; ok {
 			tab := e.tabs.Active()
 			if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
+				// Set context-sensitive key hints on status bar
+				switch e.graphFocus {
+				case 0:
+					e.statusBar.SetRightHint("c:commit  a:stage-all  p:push  P:pull  t:tag  m:merge  r:rebase  s:stash  S:pop")
+				case 1:
+					e.statusBar.SetRightHint("Space:stage  u:unstage  Enter:diff  Esc:back")
+				case 2:
+					e.statusBar.SetRightHint("Esc:back")
+				}
 				if e.graphFocus == 2 && e.graphDiffView != nil {
 					// Full-screen diff view
 					e.graphDiffView.SetBounds(r)
@@ -752,10 +777,13 @@ func (e *Editor) render() {
 					e.commitDetailView.SetFocused(e.graphFocus == 1)
 					e.commitDetailView.Render(e.screen)
 				}
-			} else if e.editorView != nil {
-				e.editorView.SetBounds(r)
-				e.editorView.SetFocused(true)
-				e.editorView.Render(e.screen)
+			} else {
+				e.statusBar.SetRightHint("")
+				if e.editorView != nil {
+					e.editorView.SetBounds(r)
+					e.editorView.SetFocused(true)
+					e.editorView.Render(e.screen)
+				}
 			}
 		}
 	}
