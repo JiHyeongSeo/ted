@@ -41,6 +41,14 @@ func (cv *CommitDetailView) SetOnFileEnter(fn func(commit *git.Commit, fileLine 
 	cv.onFileEnter = fn
 }
 
+// SelectedFile returns the currently selected file line (e.g. "M\tpath"), or "".
+func (cv *CommitDetailView) SelectedFile() string {
+	if cv.selectedIdx >= 0 && cv.selectedIdx < len(cv.files) {
+		return cv.files[cv.selectedIdx]
+	}
+	return ""
+}
+
 // headerLines returns how many lines the header takes (before the file list).
 func (cv *CommitDetailView) headerLines() int {
 	// separator(1) + "Commit Details"(1) + hash(1) + message(1) + author(1) + blank(1) + "Changed files"(1) = 7
@@ -84,7 +92,7 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 
 	// Draw focus indicator label on separator
 	if cv.IsFocused() {
-		label := " Files (↑↓ Enter:diff  Esc:back) "
+		label := " Files (↑↓ Enter:diff  a:stage  Esc:back) "
 		lx := bounds.X + 1
 		labelStyle := defaultStyle.Foreground(tcell.ColorWhite).Background(tcell.ColorSteelBlue).Bold(true)
 		for _, ch := range label {

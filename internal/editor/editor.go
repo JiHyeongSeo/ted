@@ -462,6 +462,11 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				e.graphFocus = 0 // back to graph
 				return
 			}
+			// Stage selected file with 'a'
+			if ev.Key() == tcell.KeyRune && ev.Rune() == 'a' {
+				e.graphGitStageFile()
+				return
+			}
 			if e.commitDetailView != nil && e.commitDetailView.HandleEvent(ev) {
 				return
 			}
@@ -803,16 +808,9 @@ func (e *Editor) render() {
 		}
 	}
 	if e.inputBar.IsVisible() {
-		if r, ok := activeEditorRegion(); ok {
-			// Right-aligned small overlay at top of editor
-			barWidth := 30
-			if barWidth > r.Width {
-				barWidth = r.Width
-			}
-			barX := r.X + r.Width - barWidth
-			e.inputBar.SetBounds(types.Rect{X: barX, Y: r.Y, Width: barWidth, Height: 1})
-			e.inputBar.Render(e.screen)
-		}
+		// Center the input bar on screen
+		e.inputBar.SetBoundsFromScreen(w, h)
+		e.inputBar.Render(e.screen)
 	}
 	if e.autocomplete.IsVisible() {
 		e.autocomplete.Render(e.screen)
