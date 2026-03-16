@@ -81,6 +81,16 @@ func (d *DiffTracker) Commit(message string) (string, error) {
 }
 
 // Push pushes to the remote.
+// Fetch fetches from the remote.
+func (d *DiffTracker) Fetch() (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "fetch")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git fetch: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (d *DiffTracker) Push() (string, error) {
 	cmd := exec.Command("git", "-C", d.repoRoot, "push")
 	out, err := cmd.CombinedOutput()

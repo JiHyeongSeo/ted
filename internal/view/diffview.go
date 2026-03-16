@@ -74,9 +74,10 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 	sepStyle := bgStyle.Foreground(dv.theme.ResolveColor("#505050"))
 	lineNumStyle := dv.theme.UIStyle("linenumber")
 
-	// Diff background colors (syntax highlighting provides foreground)
-	addedBg := tcell.NewRGBColor(30, 58, 30)
-	removedBg := tcell.NewRGBColor(58, 30, 30)
+	// Diff background colors using 256-color palette for broad terminal support
+	// Color 22 = dark green, Color 52 = dark red
+	addedBg := tcell.PaletteColor(22)
+	removedBg := tcell.PaletteColor(52)
 
 	// Clear
 	for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {

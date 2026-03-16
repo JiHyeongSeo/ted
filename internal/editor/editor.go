@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/JiHyeongSeo/ted/internal/buffer"
@@ -351,6 +352,7 @@ func (e *Editor) OpenDirectory(path string) {
 	e.diffTracker, _ = git.NewDiffTracker(e.projectRoot)
 	e.layout.SetSidebarVisible(true)
 	e.sidebarFocus = true // start with sidebar focus
+	e.updatePaletteFileItems()
 }
 
 // OpenEmpty opens a new empty buffer tab.
@@ -394,6 +396,23 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	e.ensureLSP()
 
 	defer e.lspManager.StopAll()
+
+	// Start auto-fetch ticker (every 60 seconds)
+	fetchTicker := time.NewTicker(60 * time.Second)
+	defer fetchTicker.Stop()
+	go func() {
+		for range fetchTicker.C {
+			if e.diffTracker != nil && e.running {
+				e.diffTracker.Fetch()
+				if e.graphView != nil {
+					e.graphRefresh()
+					if e.screen != nil {
+						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					}
+				}
+			}
+		}
+	}()
 
 	e.render()
 
@@ -596,6 +615,9 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				switch ev.Rune() {
 				case 'c':
 					e.graphGitCommit()
+					return
+				case 'f':
+					e.graphGitFetch()
 					return
 				case 'p':
 					e.graphGitPush()

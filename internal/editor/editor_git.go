@@ -331,6 +331,29 @@ func (e *Editor) graphGitCommit() {
 	})
 }
 
+// graphGitFetch fetches from remote and refreshes graph.
+func (e *Editor) graphGitFetch() {
+	if e.diffTracker == nil {
+		return
+	}
+	e.statusBar.SetMessage("Fetching...")
+	go func() {
+		out, err := e.diffTracker.Fetch()
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else if out != "" {
+			e.statusBar.SetMessage("Fetched: " + strings.Split(out, "\n")[0])
+			e.graphRefresh()
+		} else {
+			e.statusBar.SetMessage("Fetched successfully")
+			e.graphRefresh()
+		}
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
+}
+
 // graphGitPush pushes to remote from graph view with confirmation.
 func (e *Editor) graphGitPush() {
 	if e.diffTracker == nil {
