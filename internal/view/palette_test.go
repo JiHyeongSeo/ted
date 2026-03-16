@@ -218,3 +218,18 @@ func TestFuzzyFilterTracksMatchPositions(t *testing.T) {
 		t.Error("expected match positions to be populated")
 	}
 }
+
+func TestMatchPositionSet(t *testing.T) {
+	positions := []int{0, 2, 5}
+	set := makePositionSet(positions)
+
+	if !set[0] {
+		t.Error("expected position 0 to be in set")
+	}
+	if set[1] {
+		t.Error("expected position 1 to NOT be in set")
+	}
+	if !set[2] {
+		t.Error("expected position 2 to be in set")
+	}
+}
