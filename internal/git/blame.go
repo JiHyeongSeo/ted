@@ -97,13 +97,27 @@ func FormatBlameLine(b BlameLine, maxWidth int) string {
 	}
 
 	author := b.Author
-	if len(author) > 10 {
-		author = author[:10]
+	if len(author) > 12 {
+		author = author[:12]
 	}
 
 	age := formatAge(b.Time)
-	text := fmt.Sprintf("%s %s %s", b.Hash, author, age)
 
+	// Show: hash author date summary
+	summary := b.Summary
+	remaining := maxWidth - len(b.Hash) - len(author) - len(age) - 4 // 4 spaces
+	if remaining > 0 && summary != "" {
+		if len(summary) > remaining {
+			summary = summary[:remaining-1] + "…"
+		}
+		text := fmt.Sprintf("%s %s %s %s", b.Hash, author, age, summary)
+		if len(text) > maxWidth {
+			text = text[:maxWidth]
+		}
+		return text
+	}
+
+	text := fmt.Sprintf("%s %s %s", b.Hash, author, age)
 	if len(text) > maxWidth {
 		text = text[:maxWidth]
 	}

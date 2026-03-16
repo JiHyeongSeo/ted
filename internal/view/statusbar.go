@@ -146,7 +146,7 @@ func (sb *StatusBar) drawRightHint(screen tcell.Screen, bounds types.Rect, baseS
 	}
 	keyStyle := baseStyle.Foreground(tcell.ColorWhite).Bold(true)
 	sepStyle := baseStyle.Foreground(tcell.ColorDarkGray)
-	valStyle := baseStyle.Foreground(tcell.ColorGray)
+	valStyle := baseStyle.Foreground(tcell.ColorSilver)
 	inKey := true
 	for _, ch := range hint {
 		if hx >= bounds.X+bounds.Width {

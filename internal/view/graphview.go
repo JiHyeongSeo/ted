@@ -70,6 +70,18 @@ func (gv *GraphView) MoveUp() {
 	}
 }
 
+// SelectByShortHash selects the commit matching the given short hash.
+func (gv *GraphView) SelectByShortHash(shortHash string) {
+	for i, row := range gv.rows {
+		if row.Commit != nil && row.Commit.ShortHash == shortHash {
+			gv.selectedIdx = i
+			gv.ensureVisible()
+			gv.notifySelect()
+			return
+		}
+	}
+}
+
 func (gv *GraphView) ensureVisible() {
 	height := gv.Bounds().Height
 	if height <= 0 {

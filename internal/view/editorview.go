@@ -8,6 +8,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 	"github.com/seoji/ted/internal/buffer"
+	"github.com/seoji/ted/internal/git"
 	"github.com/seoji/ted/internal/syntax"
 	"github.com/seoji/ted/internal/types"
 )
@@ -36,8 +37,10 @@ type EditorView struct {
 	clipboard        string                // internal clipboard
 	searchHighlights []SearchHighlight     // search match highlights
 	gutterMarkers    map[int]types.GutterMark
-	blameLines       []string // pre-formatted blame text per line (0-based)
-	blameWidth       int      // display width of blame column
+	blameLines       []string         // pre-formatted blame text per line (0-based)
+	blameData        []git.BlameLine  // raw blame data per line (for click handling)
+	blameWidth       int              // display width of blame column
+	onBlameClick     func(hash string) // callback when blame hash is clicked
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -1116,12 +1119,21 @@ func (e *EditorView) SetGutterMarkers(markers map[int]types.GutterMark) {
 // SetBlame sets the blame info for display in the gutter.
 func (e *EditorView) SetBlame(lines []string, width int) {
 	e.blameLines = lines
+	e.blameData = nil
+	e.blameWidth = width
+}
+
+// SetBlameData sets blame info with raw data for click handling.
+func (e *EditorView) SetBlameData(lines []string, data []git.BlameLine, width int) {
+	e.blameLines = lines
+	e.blameData = data
 	e.blameWidth = width
 }
 
 // ClearBlame removes blame info from the display.
 func (e *EditorView) ClearBlame() {
 	e.blameLines = nil
+	e.blameData = nil
 	e.blameWidth = 0
 }
 
@@ -1130,16 +1142,33 @@ func (e *EditorView) HasBlame() bool {
 	return e.blameWidth > 0
 }
 
+// SetOnBlameClick sets the callback when a blame hash is clicked.
+func (e *EditorView) SetOnBlameClick(fn func(hash string)) {
+	e.onBlameClick = fn
+}
+
 // HandleMouseClick moves the cursor to the screen position clicked.
 func (e *EditorView) HandleMouseClick(screenX, screenY int) {
 	bounds := e.Bounds()
-	textAreaX := bounds.X + e.lineNumWidth + e.blameWidth
+	blameStartX := bounds.X + e.lineNumWidth
+	textAreaX := blameStartX + e.blameWidth
 
 	// Calculate line from screen Y
 	row := screenY - bounds.Y
 	line := e.scrollY + row
 	if line < 0 {
 		line = 0
+	}
+
+	// Check if click is in the blame column
+	if e.blameWidth > 0 && screenX >= blameStartX && screenX < textAreaX {
+		if e.onBlameClick != nil && line < len(e.blameData) {
+			hash := e.blameData[line].Hash
+			if hash != "" {
+				e.onBlameClick(hash)
+				return
+			}
+		}
 	}
 	if line >= e.buf.LineCount() {
 		line = e.buf.LineCount() - 1
