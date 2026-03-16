@@ -121,6 +121,16 @@ func (p *CommandPalette) Show() {
 	p.filterItems()
 }
 
+// ShowWithQuery makes the palette visible with an initial query string.
+// The mode is derived from the query prefix (e.g. ">" for command mode).
+func (p *CommandPalette) ShowWithQuery(query string) {
+	p.visible = true
+	p.query = query
+	p.detectMode()
+	p.selectedIdx = 0
+	p.filterItems()
+}
+
 // Hide hides the palette.
 func (p *CommandPalette) Hide() {
 	p.visible = false
@@ -223,7 +233,7 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 	var prompt string
 	switch p.mode {
 	case PaletteModeCommand:
-		prompt = "> " + p.query
+		prompt = "> " + strings.TrimLeft(strings.TrimPrefix(p.query, ">"), " ")
 	case PaletteModeGoLine:
 		prompt = ":" + strings.TrimPrefix(p.query, ":")
 	case PaletteModeBuffer:

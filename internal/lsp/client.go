@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Client is a JSON-RPC 2.0 client for LSP communication.
@@ -77,6 +78,11 @@ func (c *Client) Call(method string, params interface{}) (*Response, error) {
 	select {
 	case resp := <-ch:
 		return resp, nil
+	case <-time.After(5 * time.Second):
+		c.pendMu.Lock()
+		delete(c.pending, id)
+		c.pendMu.Unlock()
+		return nil, fmt.Errorf("LSP request timed out")
 	case <-c.done:
 		return nil, fmt.Errorf("client closed")
 	}

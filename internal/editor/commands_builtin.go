@@ -116,7 +116,7 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 
 	reg.Register(&Command{
 		Name:        "lsp.goToDefinition",
-		Description: "Go to symbol definition",
+		Description: "Jump to where the symbol under cursor is defined",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("lsp.goToDefinition")
 		},
@@ -124,7 +124,7 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 
 	reg.Register(&Command{
 		Name:        "lsp.findReferences",
-		Description: "Find all references to symbol",
+		Description: "List all usages of the symbol under cursor",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("lsp.findReferences")
 		},
@@ -132,7 +132,7 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 
 	reg.Register(&Command{
 		Name:        "lsp.autocomplete",
-		Description: "Trigger autocomplete",
+		Description: "Trigger code completion at cursor (also auto-triggers on . and :)",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("lsp.autocomplete")
 		},
@@ -140,7 +140,7 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 
 	reg.Register(&Command{
 		Name:        "lsp.hover",
-		Description: "Show hover information",
+		Description: "Show type info and docs for symbol under cursor",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("lsp.hover")
 		},
@@ -201,6 +201,15 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 		Description: "Show git commit graph",
 		Execute: func(ctx EditorContext) error {
 			return ctx.ExecuteCommand("git.graph")
+		},
+	})
+
+	// Python commands
+	reg.Register(&Command{
+		Name:        "python.selectEnv",
+		Description: "Select Python virtual environment",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("python.selectEnv")
 		},
 	})
 

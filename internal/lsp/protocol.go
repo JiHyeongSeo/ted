@@ -126,6 +126,13 @@ type Location struct {
 	Range Range  `json:"range"`
 }
 
+// LocationLink is an alternative location format some servers return for definitions.
+type LocationLink struct {
+	TargetURI            string `json:"targetUri"`
+	TargetRange          Range  `json:"targetRange"`
+	TargetSelectionRange Range  `json:"targetSelectionRange"`
+}
+
 // Diagnostic represents a diagnostic (error, warning, etc).
 type Diagnostic struct {
 	Range    Range  `json:"range"`

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,7 @@ type Editor struct {
 	graphDiffView    *view.DiffView // inline diff within graph tab
 	graphFocus         int // 0=graph, 1=files, 2=diff
 	graphFileUpdates   chan graphFileUpdate
+	lspNavResult       chan lsp.Location // definition/reference navigation result
 	listPicker         *view.ListPicker
 	pasteActive           bool
 	mouseDown             bool // tracking mouse button1 press for drag selection
@@ -110,6 +112,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.inputBar = view.NewInputBar(theme)
 	e.listPicker = view.NewListPicker(theme)
 	e.graphFileUpdates = make(chan graphFileUpdate, 1)
+	e.lspNavResult = make(chan lsp.Location, 1)
 	e.autocomplete = view.NewAutocompletePopup(theme)
 	e.tooltip = view.NewTooltip(theme)
 	e.recentFiles = LoadRecentFiles()
@@ -133,6 +136,8 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	})
 	e.palette.SetOnFileOpen(func(path string) {
 		e.OpenFile(path)
+		e.sidebarFocus = false
+		e.panelFocus = false
 	})
 	e.palette.SetOnBufferOpen(func(path string) {
 		// Find the tab with this path and switch to it
@@ -143,6 +148,18 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 		}
 	})
 	e.palette.SetOnDirOpen(func(path string) {
+		// VSCode-style: warn if unsaved changes
+		for _, tab := range e.tabs.All() {
+			if tab.Buffer.IsDirty() {
+				e.statusBar.SetMessage("Unsaved changes! Save all files before switching directory.")
+				return
+			}
+		}
+		// Close all tabs, then open the new directory
+		for e.tabs.Count() > 0 {
+			e.tabs.Close(0)
+		}
+		e.syncViewToTab() // sets e.editorView = nil
 		e.OpenDirectory(path)
 	})
 	e.palette.SetOnGoToLine(func(line int) {
@@ -465,7 +482,26 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				}
 			default:
 			}
+			// Handle LSP definition/reference navigation on the main thread
+			navigated := false
+			select {
+			case loc := <-e.lspNavResult:
+				path := lsp.PathFromFileURI(loc.URI)
+				e.OpenFile(path)
+				if e.editorView != nil {
+					e.editorView.SetCursorPosition(types.Position{
+						Line: loc.Range.Start.Line,
+						Col:  loc.Range.Start.Character,
+					})
+					e.syncTabFromView()
+				}
+				navigated = true
+			default:
+			}
 			e.render()
+			if navigated {
+				screen.Sync()
+			}
 		}
 	}
 
@@ -1124,17 +1160,14 @@ func (e *Editor) registerCommands() {
 }
 
 func (e *Editor) updatePaletteItems() {
-	// Command items
+	// Command items — sorted alphabetically by name
 	cmds := e.commands.Commands()
 	cmdItems := make([]view.PaletteItem, len(cmds))
 	for i, cmd := range cmds {
-		// Get keybinding for this command
 		keybinding := ""
-		bindings := e.keymap.BindingsForCommand(cmd.Name)
-		if len(bindings) > 0 {
-			keybinding = bindings[0] // use first binding
+		if bindings := e.keymap.BindingsForCommand(cmd.Name); len(bindings) > 0 {
+			keybinding = bindings[0]
 		}
-
 		cmdItems[i] = view.PaletteItem{
 			Label:       cmd.Name,
 			Description: cmd.Description,
@@ -1142,6 +1175,9 @@ func (e *Editor) updatePaletteItems() {
 			Keybinding:  keybinding,
 		}
 	}
+	sort.Slice(cmdItems, func(i, j int) bool {
+		return cmdItems[i].Label < cmdItems[j].Label
+	})
 	e.palette.SetItems(cmdItems)
 
 	// File items - scan project root
@@ -1236,7 +1272,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("shift+f12", "lsp.findReferences", "")
 	e.keymap.Bind("ctrl+space", "lsp.autocomplete", "")
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
-	e.keymap.Bind("ctrl+shift+p", "python.selectEnv", "")
+	e.keymap.Bind("ctrl+shift+p", "palette.open", "")
 	e.keymap.Bind("ctrl+shift+g", "git.graph", "")
 	// Load additional keybindings from JSON config file.
 	// Lookup order: user config (~/.config/ted/keybindings.json) then
@@ -1458,23 +1494,25 @@ func (e *Editor) showPythonEnvSelector() {
 
 	e.palette.SetItems(items)
 	savedOnSelect := e.palette.OnSelect()
+	restore := func() {
+		e.updatePaletteItems()
+		e.palette.SetOnSelect(savedOnSelect)
+	}
 	e.palette.SetOnSelect(func(item view.PaletteItem) {
 		if strings.HasPrefix(item.Command, "__pyenv:") {
 			idxStr := strings.TrimPrefix(item.Command, "__pyenv:")
 			if idx, err := strconv.Atoi(idxStr); err == nil && idx < len(envs) {
 				e.pythonEnv = &envs[idx]
 				e.statusBar.SetMessage("Python: " + envs[idx].Path)
-				// Restart Python LSP with new environment
 				if e.lspManager.IsRunning("python") {
 					e.lspManager.StopServer("python")
 				}
 			}
 		}
-		// Restore palette
-		e.updatePaletteItems()
-		e.palette.SetOnSelect(savedOnSelect)
+		restore()
 	})
-	e.palette.Show()
+	e.palette.SetOnDismiss(func() { restore() })
+	e.palette.ShowWithQuery(">")
 }
 
 // tryQuit handles quit with unsaved changes warning.
@@ -1715,10 +1753,14 @@ func (e *Editor) showProjectSearch() {
 				}
 				lines = append(lines, fmt.Sprintf("%s:%d:%d  %s", rel, r.Line, r.Col, r.Text))
 			}
+			engine := "built-in"
+			if _, err := exec.LookPath("rg"); err == nil {
+				engine = "rg"
+			}
 			if len(lines) == 0 {
-				lines = append(lines, fmt.Sprintf("No results for '%s'", query))
+				lines = append(lines, fmt.Sprintf("No results for '%s' [%s]", query, engine))
 			} else {
-				lines = append([]string{fmt.Sprintf("Found %d results for '%s':", len(results), query)}, lines...)
+				lines = append([]string{fmt.Sprintf("Found %d results for '%s' [%s]:", len(results), query, engine)}, lines...)
 			}
 			e.panel.SetContent(1, lines)
 			e.statusBar.SetMessage(fmt.Sprintf("Found %d results", len(results)))
@@ -1913,17 +1955,20 @@ func (e *Editor) lspGoToDefinition() {
 		e.statusBar.SetMessage("LSP not available for " + tab.Language)
 		return
 	}
+	uri := lsp.FileURIFromPath(tab.Buffer.Path())
+	if tab.Buffer.IsDirty() {
+		lsp.DidChange(client, uri, 0, tab.Buffer.Text())
+	}
 	cursor := e.editorView.CursorPosition()
-	resp, err := lsp.RequestDefinition(client, lsp.FileURIFromPath(tab.Buffer.Path()), cursor.Line, cursor.Col)
+	resp, err := lsp.RequestDefinition(client, uri, cursor.Line, cursor.Col)
 	if err != nil {
-		e.statusBar.SetMessage(fmt.Sprintf("LSP error: %v", err))
+		e.statusBar.SetMessage(fmt.Sprintf("LSP: %v", err))
 		return
 	}
 	if resp.Error != nil {
 		e.statusBar.SetMessage(fmt.Sprintf("LSP: %s", resp.Error.Message))
 		return
 	}
-	// Parse response as Location or []Location
 	locations := parseLSPLocations(resp)
 	if len(locations) == 0 {
 		e.statusBar.SetMessage("No definition found")
@@ -1933,7 +1978,10 @@ func (e *Editor) lspGoToDefinition() {
 	path := lsp.PathFromFileURI(loc.URI)
 	e.OpenFile(path)
 	if e.editorView != nil {
-		e.editorView.SetCursorPosition(types.Position{Line: loc.Range.Start.Line, Col: loc.Range.Start.Character})
+		e.editorView.SetCursorPosition(types.Position{
+			Line: loc.Range.Start.Line,
+			Col:  loc.Range.Start.Character,
+		})
 		e.syncTabFromView()
 	}
 }
@@ -1948,10 +1996,14 @@ func (e *Editor) lspFindReferences() {
 		e.statusBar.SetMessage("LSP not available for " + tab.Language)
 		return
 	}
+	uri := lsp.FileURIFromPath(tab.Buffer.Path())
+	if tab.Buffer.IsDirty() {
+		lsp.DidChange(client, uri, 0, tab.Buffer.Text())
+	}
 	cursor := e.editorView.CursorPosition()
-	resp, err := lsp.RequestReferences(client, lsp.FileURIFromPath(tab.Buffer.Path()), cursor.Line, cursor.Col)
+	resp, err := lsp.RequestReferences(client, uri, cursor.Line, cursor.Col)
 	if err != nil {
-		e.statusBar.SetMessage(fmt.Sprintf("LSP error: %v", err))
+		e.statusBar.SetMessage(fmt.Sprintf("LSP: %v", err))
 		return
 	}
 	if resp.Error != nil {
@@ -1963,7 +2015,6 @@ func (e *Editor) lspFindReferences() {
 		e.statusBar.SetMessage("No references found")
 		return
 	}
-	// Show references in bottom panel
 	var lines []string
 	lines = append(lines, fmt.Sprintf("Found %d references:", len(locations)))
 	for _, loc := range locations {
@@ -2070,6 +2121,7 @@ func (e *Editor) lspHover() {
 }
 
 // parseLSPLocations parses a definition/references response into locations.
+// Handles Location, []Location, and []LocationLink formats.
 func parseLSPLocations(resp *lsp.Response) []lsp.Location {
 	if resp.Result == nil {
 		return nil
@@ -2084,8 +2136,20 @@ func parseLSPLocations(resp *lsp.Response) []lsp.Location {
 
 	// Try as []Location
 	var locs []lsp.Location
-	if err := json.Unmarshal(data, &locs); err == nil {
+	if err := json.Unmarshal(data, &locs); err == nil && len(locs) > 0 && locs[0].URI != "" {
 		return locs
+	}
+
+	// Try as []LocationLink (some servers return this for definitions)
+	var links []lsp.LocationLink
+	if err := json.Unmarshal(data, &links); err == nil {
+		result := make([]lsp.Location, 0, len(links))
+		for _, l := range links {
+			if l.TargetURI != "" {
+				result = append(result, lsp.Location{URI: l.TargetURI, Range: l.TargetSelectionRange})
+			}
+		}
+		return result
 	}
 
 	return nil
