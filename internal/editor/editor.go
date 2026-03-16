@@ -474,6 +474,38 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				e.graphFocus = 1 // move to file list
 				return
 			}
+			// Git operations via single-key shortcuts
+			if ev.Key() == tcell.KeyRune {
+				switch ev.Rune() {
+				case 'c':
+					e.graphGitCommit()
+					return
+				case 'p':
+					e.graphGitPush()
+					return
+				case 'P':
+					e.graphGitPull()
+					return
+				case 't':
+					e.graphGitTag()
+					return
+				case 'm':
+					e.graphGitMerge()
+					return
+				case 'r':
+					e.graphGitRebase()
+					return
+				case 's':
+					e.graphGitStash()
+					return
+				case 'S':
+					e.graphGitStashPop()
+					return
+				case 'a':
+					e.graphGitStageAll()
+					return
+				}
+			}
 			if e.graphView.HandleEvent(ev) {
 				return
 			}

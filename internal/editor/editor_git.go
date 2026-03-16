@@ -291,6 +291,199 @@ func (e *Editor) gitOpenGraph() {
 	e.statusBar.SetMessage(fmt.Sprintf("Git Graph: %d commits", len(commits)))
 }
 
+// graphRefresh reloads the git graph after an operation.
+func (e *Editor) graphRefresh() {
+	// Close and reopen graph to reflect changes
+	e.closeCurrentTab()
+	e.gitOpenGraph()
+}
+
+// graphGitCommit prompts for commit message and commits from graph view.
+func (e *Editor) graphGitCommit() {
+	if e.diffTracker == nil {
+		return
+	}
+	e.inputBar.Show("Commit message: ")
+	e.inputBar.SetOnSubmit(func(msg string) {
+		e.inputBar.Hide()
+		if strings.TrimSpace(msg) == "" {
+			e.statusBar.SetMessage("Commit aborted: empty message")
+			return
+		}
+		out, err := e.diffTracker.Commit(msg)
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+			return
+		}
+		lines := strings.Split(out, "\n")
+		e.statusBar.SetMessage("Committed: " + lines[0])
+		e.graphRefresh()
+	})
+}
+
+// graphGitPush pushes to remote from graph view.
+func (e *Editor) graphGitPush() {
+	if e.diffTracker == nil {
+		return
+	}
+	e.statusBar.SetMessage("Pushing...")
+	go func() {
+		out, err := e.diffTracker.Push()
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else if out != "" {
+			e.statusBar.SetMessage("Pushed: " + strings.Split(out, "\n")[0])
+		} else {
+			e.statusBar.SetMessage("Pushed successfully")
+		}
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
+}
+
+// graphGitPull pulls from remote and refreshes graph.
+func (e *Editor) graphGitPull() {
+	if e.diffTracker == nil {
+		return
+	}
+	e.statusBar.SetMessage("Pulling...")
+	go func() {
+		out, err := e.diffTracker.Pull()
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+		} else if out != "" {
+			e.statusBar.SetMessage("Pulled: " + strings.Split(out, "\n")[0])
+		} else {
+			e.statusBar.SetMessage("Pulled successfully")
+		}
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
+}
+
+// graphGitTag creates a tag on the selected commit.
+func (e *Editor) graphGitTag() {
+	if e.diffTracker == nil || e.graphView == nil {
+		return
+	}
+	commit := e.graphView.SelectedCommit()
+	if commit == nil || commit.Hash == "uncommitted" {
+		e.statusBar.SetMessage("Select a commit to tag")
+		return
+	}
+	e.inputBar.Show(fmt.Sprintf("Tag name (on %s): ", commit.ShortHash))
+	e.inputBar.SetOnSubmit(func(name string) {
+		e.inputBar.Hide()
+		name = strings.TrimSpace(name)
+		if name == "" {
+			e.statusBar.SetMessage("Tag aborted: empty name")
+			return
+		}
+		_, err := e.diffTracker.Tag(name, commit.Hash)
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+			return
+		}
+		e.statusBar.SetMessage(fmt.Sprintf("Tagged %s as %s", commit.ShortHash, name))
+		e.graphRefresh()
+	})
+}
+
+// graphGitMerge prompts for branch name and merges.
+func (e *Editor) graphGitMerge() {
+	if e.diffTracker == nil {
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+	e.inputBar.Show(fmt.Sprintf("Merge into %s from branch: ", current))
+	e.inputBar.SetOnSubmit(func(branch string) {
+		e.inputBar.Hide()
+		branch = strings.TrimSpace(branch)
+		if branch == "" {
+			e.statusBar.SetMessage("Merge aborted")
+			return
+		}
+		out, err := e.diffTracker.Merge(branch)
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+			return
+		}
+		first := strings.Split(out, "\n")[0]
+		e.statusBar.SetMessage("Merge: " + first)
+		e.graphRefresh()
+	})
+}
+
+// graphGitRebase prompts for target and rebases.
+func (e *Editor) graphGitRebase() {
+	if e.diffTracker == nil {
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+	e.inputBar.Show(fmt.Sprintf("Rebase %s onto: ", current))
+	e.inputBar.SetOnSubmit(func(target string) {
+		e.inputBar.Hide()
+		target = strings.TrimSpace(target)
+		if target == "" {
+			e.statusBar.SetMessage("Rebase aborted")
+			return
+		}
+		out, err := e.diffTracker.Rebase(target)
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+			return
+		}
+		first := strings.Split(out, "\n")[0]
+		e.statusBar.SetMessage("Rebase: " + first)
+		e.graphRefresh()
+	})
+}
+
+// graphGitStash stashes working tree changes.
+func (e *Editor) graphGitStash() {
+	if e.diffTracker == nil {
+		return
+	}
+	out, err := e.diffTracker.Stash()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	first := strings.Split(out, "\n")[0]
+	e.statusBar.SetMessage("Stash: " + first)
+	e.graphRefresh()
+}
+
+// graphGitStashPop pops the most recent stash.
+func (e *Editor) graphGitStashPop() {
+	if e.diffTracker == nil {
+		return
+	}
+	out, err := e.diffTracker.StashPop()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	first := strings.Split(out, "\n")[0]
+	e.statusBar.SetMessage("Stash pop: " + first)
+	e.graphRefresh()
+}
+
+// graphGitStageAll stages all changes from graph view.
+func (e *Editor) graphGitStageAll() {
+	if e.diffTracker == nil {
+		return
+	}
+	if err := e.diffTracker.StageAll(); err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	e.statusBar.SetMessage("Staged all changes")
+	e.graphRefresh()
+}
+
 // gitToggleBlame toggles git blame display.
 func (e *Editor) gitToggleBlame() {
 	if e.editorView == nil {
