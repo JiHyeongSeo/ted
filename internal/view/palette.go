@@ -371,7 +371,9 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 		return true
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(p.query) > 0 {
-			p.query = p.query[:len(p.query)-1]
+			// Remove last rune (not byte) to handle multi-byte chars like Korean
+			runes := []rune(p.query)
+			p.query = string(runes[:len(runes)-1])
 			p.detectMode()
 			p.filterItems()
 		}
