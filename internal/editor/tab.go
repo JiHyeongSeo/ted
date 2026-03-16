@@ -5,8 +5,17 @@ import (
 	"github.com/seoji/ted/internal/types"
 )
 
+// TabKind identifies the type of a tab.
+type TabKind int
+
+const (
+	TabKindFile  TabKind = iota // file editing tab
+	TabKindGraph                // git graph tab
+)
+
 // TabInfo holds the state of a single editor tab.
 type TabInfo struct {
+	Kind     TabKind
 	Buffer   *buffer.Buffer
 	Cursor   types.Position
 	ScrollY  int
