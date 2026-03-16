@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/JiHyeongSeo/ted/internal/config"
@@ -12,9 +13,19 @@ import (
 
 var version = "dev"
 
+func getVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return version
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Println("ted " + version)
+		fmt.Println("ted " + getVersion())
 		return
 	}
 
