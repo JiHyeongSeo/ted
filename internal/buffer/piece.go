@@ -17,21 +17,26 @@ type piece struct {
 
 // PieceTable implements the piece table data structure for efficient text editing.
 type PieceTable struct {
-	original string  // immutable original content
-	add      []byte  // append-only add buffer
-	pieces   []piece // ordered list of pieces
+	original ContentSource // immutable original content
+	add      []byte        // append-only add buffer
+	pieces   []piece       // ordered list of pieces
 }
 
-// NewPieceTable creates a new PieceTable initialized with the given content.
-func NewPieceTable(content string) *PieceTable {
+// NewPieceTable creates a new PieceTable initialized with the given ContentSource.
+func NewPieceTable(content ContentSource) *PieceTable {
 	pt := &PieceTable{
 		original: content,
 		add:      make([]byte, 0, 1024),
 	}
-	if len(content) > 0 {
-		pt.pieces = []piece{{source: srcOriginal, start: 0, length: len(content)}}
+	if content.Len() > 0 {
+		pt.pieces = []piece{{source: srcOriginal, start: 0, length: content.Len()}}
 	}
 	return pt
+}
+
+// NewPieceTableFromString creates a new PieceTable from a string (convenience constructor).
+func NewPieceTableFromString(s string) *PieceTable {
+	return NewPieceTable(NewStringContent(s))
 }
 
 // Length returns the total byte length of the content.
@@ -190,9 +195,17 @@ func (pt *PieceTable) findPiece(offset int) (idx int, within int) {
 
 func (pt *PieceTable) pieceBytes(p piece) []byte {
 	if p.source == srcOriginal {
-		return []byte(pt.original[p.start : p.start+p.length])
+		return pt.original.Slice(p.start, p.start+p.length)
 	}
 	return pt.add[p.start : p.start+p.length]
+}
+
+// Close releases resources held by the PieceTable's original content source.
+func (pt *PieceTable) Close() error {
+	if pt.original != nil {
+		return pt.original.Close()
+	}
+	return nil
 }
 
 func insertPiece(pieces []piece, idx int, p piece) []piece {

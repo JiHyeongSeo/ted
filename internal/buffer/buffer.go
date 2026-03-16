@@ -16,7 +16,7 @@ type Buffer struct {
 
 // NewBuffer creates a buffer from a string.
 func NewBuffer(content string) *Buffer {
-	pt := NewPieceTable(content)
+	pt := NewPieceTableFromString(content)
 	b := &Buffer{
 		pt:   pt,
 		undo: NewUndoManager(pt),
