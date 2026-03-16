@@ -18,6 +18,7 @@ const (
 	PaletteModeFile    PaletteMode = iota // default: fuzzy file search
 	PaletteModeCommand                    // ">" prefix: command search
 	PaletteModeGoLine                     // ":" prefix: go to line
+	PaletteModeBuffer                     // "#" prefix: switch open buffer
 )
 
 // PaletteItem represents an item in the command palette.
@@ -35,6 +36,7 @@ type CommandPalette struct {
 	theme        *syntax.Theme
 	commandItems []PaletteItem
 	fileItems    []PaletteItem
+	bufferItems  []PaletteItem
 	filtered     []PaletteItem
 	query        string
 	mode         PaletteMode
@@ -42,6 +44,7 @@ type CommandPalette struct {
 	visible      bool
 	onSelect     func(item PaletteItem)
 	onFileOpen   func(path string)
+	onBufferOpen func(path string)
 	onGoToLine   func(line int)
 	onDismiss    func()
 }
@@ -64,6 +67,11 @@ func (p *CommandPalette) SetFileItems(items []PaletteItem) {
 	p.fileItems = items
 }
 
+// SetBufferItems sets the available buffer items for buffer switch mode.
+func (p *CommandPalette) SetBufferItems(items []PaletteItem) {
+	p.bufferItems = items
+}
+
 // SetOnSelect sets the callback when a command item is selected.
 func (p *CommandPalette) SetOnSelect(fn func(item PaletteItem)) {
 	p.onSelect = fn
@@ -77,6 +85,11 @@ func (p *CommandPalette) OnSelect() func(item PaletteItem) {
 // SetOnFileOpen sets the callback when a file is selected.
 func (p *CommandPalette) SetOnFileOpen(fn func(path string)) {
 	p.onFileOpen = fn
+}
+
+// SetOnBufferOpen sets the callback when a buffer is selected.
+func (p *CommandPalette) SetOnBufferOpen(fn func(path string)) {
+	p.onBufferOpen = fn
 }
 
 // SetOnGoToLine sets the callback for go-to-line mode.
@@ -166,6 +179,8 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 		prompt = "> " + p.query
 	case PaletteModeGoLine:
 		prompt = ":" + strings.TrimPrefix(p.query, ":")
+	case PaletteModeBuffer:
+		prompt = "# " + strings.TrimPrefix(p.query, "#")
 	default:
 		prompt = p.query
 	}
@@ -324,6 +339,14 @@ func (p *CommandPalette) handleSelect() {
 				p.onSelect(item)
 			}
 		}
+	case PaletteModeBuffer:
+		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
+			item := p.filtered[p.selectedIdx]
+			p.Hide()
+			if item.FilePath != "" && p.onBufferOpen != nil {
+				p.onBufferOpen(item.FilePath)
+			}
+		}
 	default: // file mode
 		if p.selectedIdx >= 0 && p.selectedIdx < len(p.filtered) {
 			item := p.filtered[p.selectedIdx]
@@ -342,6 +365,8 @@ func (p *CommandPalette) detectMode() {
 		p.mode = PaletteModeCommand
 	} else if strings.HasPrefix(p.query, ":") {
 		p.mode = PaletteModeGoLine
+	} else if strings.HasPrefix(p.query, "#") {
+		p.mode = PaletteModeBuffer
 	} else {
 		p.mode = PaletteModeFile
 	}
@@ -353,6 +378,10 @@ func (p *CommandPalette) filterItems() {
 		searchQuery := strings.TrimPrefix(p.query, ">")
 		searchQuery = strings.TrimSpace(searchQuery)
 		p.fuzzyFilter(p.commandItems, searchQuery)
+	case PaletteModeBuffer:
+		searchQuery := strings.TrimPrefix(p.query, "#")
+		searchQuery = strings.TrimSpace(searchQuery)
+		p.fuzzyFilter(p.bufferItems, searchQuery)
 	case PaletteModeGoLine:
 		p.filtered = nil
 	default: // file mode
