@@ -244,8 +244,14 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 				e.statusBar.SetMessage("Error: " + err.Error())
 				return
 			}
-			e.statusBar.SetMessage("Deleted: " + rel)
 			e.sidebar.Refresh()
+			// Mark any open tab that had this path as deleted
+			for _, tab := range e.tabs.All() {
+				if tab.Buffer.Path() == path || strings.HasPrefix(tab.Buffer.Path(), path+string(filepath.Separator)) {
+					tab.Deleted = true
+				}
+			}
+			e.statusBar.SetMessage("Deleted: " + rel)
 		})
 	})
 
@@ -873,6 +879,9 @@ func (e *Editor) render() {
 				title = "⎇ Git Graph"
 			} else if t.Buffer.Path() != "" {
 				title = filepath.Base(t.Buffer.Path())
+				if t.Deleted {
+					title = "! " + title
+				}
 			} else if t.Buffer.UntitledName() != "" {
 				title = t.Buffer.UntitledName()
 			}
@@ -1336,6 +1345,26 @@ func (e *Editor) ExecuteCommand(name string) error {
 		if tab := e.tabs.Active(); tab != nil {
 			if tab.Buffer.Path() == "" {
 				e.showSaveAsDialog(tab)
+				return nil
+			}
+			if tab.Deleted {
+				name := filepath.Base(tab.Buffer.Path())
+				e.inputBar.Show(fmt.Sprintf("Recreate deleted file '%s'? (y/n): ", name))
+				e.inputBar.SetOnSubmit(func(answer string) {
+					e.inputBar.Hide()
+					if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+						e.statusBar.SetMessage("Save cancelled")
+						return
+					}
+					if err := tab.Buffer.Save(); err != nil {
+						e.statusBar.SetMessage("Save failed: " + err.Error())
+						return
+					}
+					tab.Deleted = false
+					e.sidebar.Refresh()
+					e.statusBar.SetMessage("Recreated: " + name)
+					e.updateGutterMarkers()
+				})
 				return nil
 			}
 			if err := tab.Buffer.Save(); err != nil {
@@ -1861,6 +1890,21 @@ func byteColToRuneCol(s string, byteCol int) int {
 }
 
 // closeCurrentTab closes the active tab with unsaved changes check.
+func (e *Editor) forceCloseTab(tab *TabInfo) {
+	if e.lspManager.IsRunning(tab.Language) {
+		if client := e.lspManager.GetClient(tab.Language); client != nil && tab.Buffer.Path() != "" {
+			lsp.DidClose(client, lsp.FileURIFromPath(tab.Buffer.Path()))
+		}
+	}
+	tab.Buffer.Close()
+	idx := e.tabs.ActiveIndex()
+	e.tabs.Close(idx)
+	if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
+		e.OpenEmpty()
+	}
+	e.syncViewToTab()
+}
+
 func (e *Editor) closeCurrentTab() {
 	tab := e.tabs.Active()
 	if tab == nil {
@@ -1881,6 +1925,19 @@ func (e *Editor) closeCurrentTab() {
 		return
 	}
 
+	if tab.Deleted && tab.Buffer.IsDirty() {
+		// File was deleted and has unsaved edits — ask to discard
+		name := filepath.Base(tab.Buffer.Path())
+		e.inputBar.Show(fmt.Sprintf("'%s' was deleted. Discard and close? (y/n): ", name))
+		e.inputBar.SetOnSubmit(func(answer string) {
+			e.inputBar.Hide()
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				return
+			}
+			e.forceCloseTab(tab)
+		})
+		return
+	}
 	if tab.Buffer.IsDirty() {
 		e.statusBar.SetMessage("Unsaved changes! Save first or press Ctrl+Q to quit.")
 		return

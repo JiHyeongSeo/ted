@@ -21,6 +21,7 @@ type TabInfo struct {
 	ScrollY  int
 	ScrollX  int
 	Language string
+	Deleted  bool // true when the file was deleted from disk while open
 }
 
 // TabManager manages open file tabs.
