@@ -117,16 +117,20 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		if lineNum == e.cursor.Line {
 			lineNumStyle = e.theme.UIStyle("linenumber.active")
 		}
-		// Apply git gutter marker background
+		// Apply git gutter marker — color + symbol in the last gutter column
+		gutterSymbol := ' '
 		if mark, ok := e.gutterMarkers[lineNum]; ok && mark != types.MarkNone {
 			var colorKey string
 			switch mark {
 			case types.MarkAdded:
 				colorKey = "gitAdded"
+				gutterSymbol = '+'
 			case types.MarkModified:
 				colorKey = "gitModified"
+				gutterSymbol = '│'
 			case types.MarkDeleted:
 				colorKey = "gitDeleted"
+				gutterSymbol = '▸'
 			}
 			if colorKey != "" {
 				if hex := e.theme.UI[colorKey]; hex != "" {
@@ -140,7 +144,7 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		for i, ch := range lineNumStr {
 			screen.SetContent(bounds.X+i, bounds.Y+row, ch, nil, lineNumStyle)
 		}
-		screen.SetContent(bounds.X+e.lineNumWidth-1, bounds.Y+row, ' ', nil, lineNumStyle)
+		screen.SetContent(bounds.X+e.lineNumWidth-1, bounds.Y+row, gutterSymbol, nil, lineNumStyle)
 
 		// Draw blame column if active
 		if e.blameWidth > 0 {
