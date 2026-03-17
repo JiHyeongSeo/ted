@@ -704,6 +704,9 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				case 'S':
 					e.graphGitStashPop()
 					return
+				case 'X':
+					e.graphGitStashDrop()
+					return
 				case 'T':
 					e.graphGitPushTags()
 					return
@@ -952,7 +955,7 @@ func (e *Editor) render() {
 				// Set context-sensitive key hints on status bar
 				switch e.graphFocus {
 				case 0:
-					e.statusBar.SetRightHint("c:commit  a:stage-all  p:push  T:push-tags  P:pull  o:checkout  b:branch  t:tag  d:delete  m:merge  r:rebase  s:stash  S:pop  U:upstream")
+					e.statusBar.SetRightHint("c:commit  a:stage-all  p:push  T:push-tags  P:pull  o:checkout  b:branch  t:tag  d:delete  m:merge  r:rebase  s:stash  S:pop  X:drop-stash  U:upstream")
 				case 1:
 					e.statusBar.SetRightHint("Space:stage  u:unstage  Enter:diff  Esc:back")
 				case 2:

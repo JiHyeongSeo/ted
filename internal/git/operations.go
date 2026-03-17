@@ -289,6 +289,16 @@ func (d *DiffTracker) StashPopAt(ref string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// StashDropAt drops (deletes) a specific stash without applying it.
+func (d *DiffTracker) StashDropAt(ref string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "stash", "drop", ref)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git stash drop %s: %s", ref, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // ListTags returns all local tag names, newest first.
 func (d *DiffTracker) ListTags() ([]string, error) {
 	cmd := exec.Command("git", "-C", d.repoRoot, "tag", "-l", "--sort=-version:refname")

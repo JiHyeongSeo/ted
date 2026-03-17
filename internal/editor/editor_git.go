@@ -745,6 +745,16 @@ func (e *Editor) graphGitStash() {
 
 // graphGitStashPop shows stash list and pops the selected entry.
 func (e *Editor) graphGitStashPop() {
+	e.showStashPicker("pop")
+}
+
+// graphGitStashDrop shows stash list and drops (deletes) the selected entry.
+func (e *Editor) graphGitStashDrop() {
+	e.showStashPicker("drop")
+}
+
+// showStashPicker shows a stash list picker, then performs action ("pop" or "drop").
+func (e *Editor) showStashPicker(action string) {
 	if e.diffTracker == nil {
 		return
 	}
@@ -753,20 +763,37 @@ func (e *Editor) graphGitStashPop() {
 		e.statusBar.SetMessage("No stashes found")
 		return
 	}
-	e.listPicker.Show("Pop stash", stashes)
-	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Stash pop cancelled") })
+	title := "Pop stash"
+	if action == "drop" {
+		title = "Drop (delete) stash"
+	}
+	e.listPicker.Show(title, stashes)
+	e.listPicker.SetOnCancel(func() { e.statusBar.SetMessage("Cancelled") })
 	e.listPicker.SetOnSelect(func(item string) {
 		// item format: "stash@{N}: ..." — extract stash@{N}
 		ref := strings.SplitN(item, ":", 2)[0]
-		e.statusBar.SetMessage(fmt.Sprintf("Popping %s...", ref))
 		go func() {
-			out, err := e.diffTracker.StashPopAt(ref)
-			if err != nil {
-				e.statusBar.SetMessage(err.Error())
+			var out string
+			var err error
+			if action == "drop" {
+				out, err = e.diffTracker.StashDropAt(ref)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+				} else {
+					_ = out
+					e.statusBar.SetMessage(fmt.Sprintf("Dropped %s", ref))
+					e.graphRefresh()
+				}
 			} else {
-				first := strings.Split(out, "\n")[0]
-				e.statusBar.SetMessage("Stash pop: " + first)
-				e.graphRefresh()
+				e.statusBar.SetMessage(fmt.Sprintf("Popping %s...", ref))
+				out, err = e.diffTracker.StashPopAt(ref)
+				if err != nil {
+					e.statusBar.SetMessage(err.Error())
+				} else {
+					first := strings.Split(out, "\n")[0]
+					e.statusBar.SetMessage("Stash pop: " + first)
+					e.graphRefresh()
+				}
 			}
 			if e.screen != nil {
 				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
