@@ -1873,11 +1873,11 @@ func (e *Editor) ExecuteCommand(name string) error {
 			}
 			e.splitManager.FocusOther()
 		}
-	}
-
-	// Fall back to commands registered via e.commands.Register
-	if cmd := e.commands.Get(name); cmd != nil {
-		return cmd.Execute(e)
+	default:
+		// Commands registered via e.commands.Register (not handled by switch)
+		if cmd := e.commands.Get(name); cmd != nil {
+			return cmd.Execute(e)
+		}
 	}
 	return nil
 }
