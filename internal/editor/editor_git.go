@@ -180,12 +180,15 @@ func (e *Editor) gitOpenGraph() {
 		}
 	}
 
-	// Load commits
-	commits, err := git.LoadCommits(e.diffTracker.RepoRoot(), 500)
+	// Load initial batch of commits
+	const initialBatch = 300
+	commits, err := git.LoadCommits(e.diffTracker.RepoRoot(), 0, initialBatch)
 	if err != nil {
 		e.statusBar.SetMessage(err.Error())
 		return
 	}
+	e.graphCommits = commits
+	e.graphAllLoaded = len(commits) < initialBatch
 
 	// Check for uncommitted changes and prepend virtual commit
 	statusEntries, _ := e.diffTracker.Status()
@@ -206,6 +209,13 @@ func (e *Editor) gitOpenGraph() {
 	rows := git.LayoutGraph(commits)
 	e.graphView = view.NewGraphView(e.theme, rows)
 	e.commitDetailView = view.NewCommitDetailView(e.theme)
+
+	// Set up lazy load callback — fires when user scrolls near the bottom
+	e.graphView.SetOnNearBottom(func() {
+		if !e.graphAllLoaded {
+			go e.graphLoadMore()
+		}
+	})
 
 	// Set up selection callback
 	repoRoot := e.diffTracker.RepoRoot()
@@ -304,6 +314,60 @@ func (e *Editor) graphRefresh() {
 	// Close and reopen graph to reflect changes
 	e.closeCurrentTab()
 	e.gitOpenGraph()
+}
+
+// graphLoadMore fetches the next batch of commits and appends them to the graph.
+// Must be called from a goroutine; posts a screen event when done.
+func (e *Editor) graphLoadMore() {
+	if e.diffTracker == nil || e.graphAllLoaded || e.graphView == nil {
+		return
+	}
+
+	const batchSize = 200
+	skip := len(e.graphCommits)
+	more, err := git.LoadCommits(e.diffTracker.RepoRoot(), skip, batchSize)
+	if err != nil || len(more) == 0 {
+		e.graphAllLoaded = true
+		if err != nil {
+			e.statusBar.SetMessage(err.Error())
+		}
+		if e.screen != nil {
+			e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+		return
+	}
+
+	e.graphCommits = append(e.graphCommits, more...)
+	if len(more) < batchSize {
+		e.graphAllLoaded = true
+	}
+
+	// Re-layout with full commit set (including the uncommitted virtual commit)
+	allCommits := e.graphCommits
+	statusEntries, _ := e.diffTracker.Status()
+	if len(statusEntries) > 0 {
+		uncommitted := git.Commit{
+			Hash:      "uncommitted",
+			ShortHash: "•••••••",
+			Message:   "Uncommitted Changes",
+		}
+		if len(allCommits) > 0 {
+			uncommitted.Parents = []string{allCommits[0].Hash}
+		}
+		allCommits = append([]git.Commit{uncommitted}, allCommits...)
+	}
+
+	rows := git.LayoutGraph(allCommits)
+	e.graphView.SetRows(rows)
+	e.graphView.ResetNearBottom()
+
+	e.statusBar.SetMessage(fmt.Sprintf("Git Graph: %d commits%s",
+		len(e.graphCommits),
+		map[bool]string{true: " (all loaded)", false: ""}[e.graphAllLoaded]))
+
+	if e.screen != nil {
+		e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+	}
 }
 
 // graphGitCommit prompts for commit message and commits from graph view.

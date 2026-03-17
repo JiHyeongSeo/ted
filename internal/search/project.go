@@ -37,19 +37,23 @@ func NewProjectSearch(root string, excludes []string, useRg bool) *ProjectSearch
 }
 
 // Search performs a project-wide search for the given pattern.
-func (ps *ProjectSearch) Search(pattern string, useRegex bool) ([]FileMatch, error) {
+// caseSensitive=false performs case-insensitive matching.
+func (ps *ProjectSearch) Search(pattern string, useRegex bool, caseSensitive bool) ([]FileMatch, error) {
 	if ps.useRg {
 		if _, err := exec.LookPath("rg"); err == nil {
-			return ps.searchWithRipgrep(pattern, useRegex)
+			return ps.searchWithRipgrep(pattern, useRegex, caseSensitive)
 		}
 	}
-	return ps.searchWithGo(pattern, useRegex)
+	return ps.searchWithGo(pattern, useRegex, caseSensitive)
 }
 
-func (ps *ProjectSearch) searchWithRipgrep(pattern string, useRegex bool) ([]FileMatch, error) {
+func (ps *ProjectSearch) searchWithRipgrep(pattern string, useRegex bool, caseSensitive bool) ([]FileMatch, error) {
 	args := []string{"--line-number", "--column", "--no-heading"}
 	if !useRegex {
 		args = append(args, "--fixed-strings")
+	}
+	if !caseSensitive {
+		args = append(args, "--ignore-case")
 	}
 	for _, exc := range ps.excludes {
 		args = append(args, "--glob", "!"+exc)
@@ -90,12 +94,16 @@ func parseRipgrepOutput(output string) []FileMatch {
 	return matches
 }
 
-func (ps *ProjectSearch) searchWithGo(pattern string, useRegex bool) ([]FileMatch, error) {
+func (ps *ProjectSearch) searchWithGo(pattern string, useRegex bool, caseSensitive bool) ([]FileMatch, error) {
 	var re *regexp.Regexp
 	var err error
 
 	if useRegex {
-		re, err = regexp.Compile(pattern)
+		p := pattern
+		if !caseSensitive {
+			p = "(?i)" + p
+		}
+		re, err = regexp.Compile(p)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +131,7 @@ func (ps *ProjectSearch) searchWithGo(pattern string, useRegex bool) ([]FileMatc
 			return nil
 		}
 
-		fileMatches, err := ps.searchFile(path, pattern, useRegex, re)
+		fileMatches, err := ps.searchFile(path, pattern, useRegex, caseSensitive, re)
 		if err != nil {
 			return nil
 		}
@@ -134,7 +142,7 @@ func (ps *ProjectSearch) searchWithGo(pattern string, useRegex bool) ([]FileMatc
 	return matches, err
 }
 
-func (ps *ProjectSearch) searchFile(path string, pattern string, useRegex bool, re *regexp.Regexp) ([]FileMatch, error) {
+func (ps *ProjectSearch) searchFile(path string, pattern string, useRegex bool, caseSensitive bool, re *regexp.Regexp) ([]FileMatch, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -160,7 +168,13 @@ func (ps *ProjectSearch) searchFile(path string, pattern string, useRegex bool, 
 				})
 			}
 		} else {
-			idx := strings.Index(line, pattern)
+			searchLine := line
+			searchPattern := pattern
+			if !caseSensitive {
+				searchLine = strings.ToLower(line)
+				searchPattern = strings.ToLower(pattern)
+			}
+			idx := strings.Index(searchLine, searchPattern)
 			if idx >= 0 {
 				matches = append(matches, FileMatch{
 					File:     path,

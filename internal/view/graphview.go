@@ -26,11 +26,13 @@ var BranchColors = []tcell.Color{
 // GraphView renders a git commit graph with selection and scrolling.
 type GraphView struct {
 	BaseComponent
-	theme       *syntax.Theme
-	rows        []git.GraphRow
-	selectedIdx int
-	scrollY     int
-	onSelect func(commit *git.Commit)
+	theme          *syntax.Theme
+	rows           []git.GraphRow
+	selectedIdx    int
+	scrollY        int
+	onSelect       func(commit *git.Commit)
+	onNearBottom   func() // called when scrolled within threshold of end
+	nearBottomFired bool  // prevents repeated firing for the same tail
 }
 
 func NewGraphView(theme *syntax.Theme, rows []git.GraphRow) *GraphView {
@@ -42,6 +44,19 @@ func NewGraphView(theme *syntax.Theme, rows []git.GraphRow) *GraphView {
 
 func (gv *GraphView) SetOnSelect(fn func(commit *git.Commit)) {
 	gv.onSelect = fn
+}
+
+// SetOnNearBottom registers a callback fired when the user scrolls within
+// threshold rows of the last loaded commit (used for lazy loading).
+func (gv *GraphView) SetOnNearBottom(fn func()) {
+	gv.onNearBottom = fn
+	gv.nearBottomFired = false
+}
+
+// ResetNearBottom allows the near-bottom callback to fire again after new
+// rows have been appended.
+func (gv *GraphView) ResetNearBottom() {
+	gv.nearBottomFired = false
 }
 
 
@@ -71,6 +86,19 @@ func (gv *GraphView) MoveDown() {
 		gv.selectedIdx++
 		gv.ensureVisible()
 		gv.notifySelect()
+	}
+	gv.checkNearBottom()
+}
+
+const nearBottomThreshold = 30
+
+func (gv *GraphView) checkNearBottom() {
+	if gv.onNearBottom == nil || gv.nearBottomFired {
+		return
+	}
+	if len(gv.rows)-gv.selectedIdx <= nearBottomThreshold {
+		gv.nearBottomFired = true
+		gv.onNearBottom()
 	}
 }
 
@@ -443,6 +471,10 @@ func (gv *GraphView) handleMouse(ev *tcell.EventMouse) bool {
 		gv.scrollY += 3
 		if gv.scrollY > maxScroll {
 			gv.scrollY = maxScroll
+		}
+		// Use scrollY as proxy for "near bottom" on mouse wheel
+		if len(gv.rows)-gv.scrollY <= nearBottomThreshold {
+			gv.checkNearBottom()
 		}
 		return true
 	}

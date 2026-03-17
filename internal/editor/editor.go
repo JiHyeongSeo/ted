@@ -69,7 +69,9 @@ type Editor struct {
 	graphView        *view.GraphView
 	commitDetailView *view.CommitDetailView
 	graphDiffView    *view.DiffView // inline diff within graph tab
-	graphFocus         int // 0=graph, 1=files, 2=diff
+	graphFocus       int            // 0=graph, 1=files, 2=diff
+	graphCommits     []git.Commit   // all loaded commits (for lazy loading)
+	graphAllLoaded   bool           // true when no more commits to fetch
 	graphFileUpdates   chan graphFileUpdate
 	lspNavResult       chan lsp.Location // definition/reference navigation result
 	listPicker         *view.ListPicker
@@ -440,8 +442,13 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				// Update graph rows in-place (preserve scroll/selection)
 				if e.graphView != nil {
 					repoRoot := e.diffTracker.RepoRoot()
-					commits, err := git.LoadCommits(repoRoot, 200)
+					n := len(e.graphCommits)
+					if n < 300 {
+						n = 300
+					}
+					commits, err := git.LoadCommits(repoRoot, 0, n)
 					if err == nil {
+						e.graphCommits = commits
 						rows := git.LayoutGraph(commits)
 						e.graphView.SetRows(rows)
 					}
@@ -1980,7 +1987,7 @@ func (e *Editor) showProjectSearch() {
 		}
 		go func() {
 			ps := search.NewProjectSearch(e.projectRoot, []string{".git", "node_modules", "vendor"}, true)
-			results, err := ps.Search(query, false)
+			results, err := ps.Search(query, false, false)
 			if err != nil {
 				e.statusBar.SetMessage(fmt.Sprintf("Search error: %v", err))
 				if e.screen != nil {

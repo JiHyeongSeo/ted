@@ -67,16 +67,21 @@ func ParseCommits(raw string) ([]Commit, error) {
 }
 
 // LoadCommits loads commit history from a git repository.
-func LoadCommits(repoRoot string, maxCount int) ([]Commit, error) {
+// skip: number of commits to skip (for pagination). maxCount: batch size (0 → 300).
+func LoadCommits(repoRoot string, skip, maxCount int) ([]Commit, error) {
 	if maxCount <= 0 {
-		maxCount = 500
+		maxCount = 300
 	}
 	format := "%h%x00%H%x00%P%x00%an%x00%at%x00%s%x00%D"
-	cmd := exec.Command("git", "-C", repoRoot, "log",
+	args := []string{"-C", repoRoot, "log",
 		"--all",
 		fmt.Sprintf("--max-count=%d", maxCount),
 		fmt.Sprintf("--format=%s", format),
-	)
+	}
+	if skip > 0 {
+		args = append(args, fmt.Sprintf("--skip=%d", skip))
+	}
+	cmd := exec.Command("git", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log: %w", err)
