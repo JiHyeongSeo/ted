@@ -77,7 +77,8 @@ type Editor struct {
 	csvView            *view.CSVView          // active CSV table view
 	rebaseView         *view.RebaseView       // interactive rebase overlay (nil when not active)
 	graphFileUpdates   chan graphFileUpdate
-	lspNavResult       chan lsp.Location // definition/reference navigation result
+	lspNavResult       chan lsp.Location           // definition/reference navigation result
+	lspSymbolResult    chan []lsp.DocumentSymbol   // document symbol result
 	listPicker         *view.ListPicker
 	pasteActive        bool
 	mouseDown          bool   // tracking mouse button1 press for drag selection
@@ -123,6 +124,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.listPicker = view.NewListPicker(theme)
 	e.graphFileUpdates = make(chan graphFileUpdate, 1)
 	e.lspNavResult = make(chan lsp.Location, 1)
+	e.lspSymbolResult = make(chan []lsp.DocumentSymbol, 1)
 	e.autocomplete = view.NewAutocompletePopup(theme)
 	e.tooltip = view.NewTooltip(theme)
 	e.recentFiles = LoadRecentFiles()
@@ -559,6 +561,12 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				if e.commitDetailView != nil {
 					e.commitDetailView.UpdateFilesWithStaged(upd.files, upd.staged)
 				}
+			default:
+			}
+			// Handle LSP document symbols on the main thread
+			select {
+			case syms := <-e.lspSymbolResult:
+				e.showSymbolPicker(syms)
 			default:
 			}
 			// Handle LSP definition/reference navigation on the main thread
@@ -1495,6 +1503,17 @@ func (e *Editor) registerCommands() {
 			return nil
 		},
 	})
+
+	e.commands.Register(&Command{
+		Name:        "editor.goToSymbol",
+		Description: "Go to symbol in file (functions, classes, etc.)",
+		Execute: func(ctx EditorContext) error {
+			if ed, ok := ctx.(*Editor); ok {
+				ed.goToSymbol()
+			}
+			return nil
+		},
+	})
 }
 
 func (e *Editor) updatePaletteItems() {
@@ -1616,6 +1635,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+shift+d", "file.compare", "")
 	e.keymap.Bind("alt+z", "edit.toggleFold", "")
 	e.keymap.Bind("alt+shift+z", "edit.unfoldAll", "")
+	e.keymap.Bind("ctrl+shift+o", "editor.goToSymbol", "")
 	// Load additional keybindings from JSON config file.
 	// Lookup order: user config (~/.config/ted/keybindings.json) then
 	// project-local (.ted/keybindings.json), so project settings win.
@@ -2570,6 +2590,179 @@ func (e *Editor) ensureLSP() {
 			}
 		}
 	}
+}
+
+// goToSymbol shows the symbol picker for the current file.
+func (e *Editor) goToSymbol() {
+	tab := e.tabs.Active()
+	if tab == nil || tab.Kind != TabKindFile {
+		return
+	}
+
+	client := e.lspManager.GetClient(tab.Language)
+	if client != nil && tab.Buffer.Path() != "" {
+		// Try LSP asynchronously
+		uri := lsp.FileURIFromPath(tab.Buffer.Path())
+		if tab.Buffer.IsDirty() {
+			lsp.DidChange(client, uri, 0, tab.Buffer.Text())
+		}
+		e.statusBar.SetMessage("Loading symbols...")
+		go func() {
+			resp, err := lsp.RequestDocumentSymbols(client, uri)
+			if err == nil && resp != nil {
+				syms, _ := lsp.ParseDocumentSymbols(resp)
+				e.lspSymbolResult <- syms
+				if e.screen != nil {
+					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				}
+				return
+			}
+			// LSP failed, fall back to regex
+			syms := extractSymbolsRegex(tab.Buffer.Text(), tab.Language)
+			e.lspSymbolResult <- syms
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+		return
+	}
+
+	// No LSP — use regex immediately
+	syms := extractSymbolsRegex(tab.Buffer.Text(), tab.Language)
+	e.showSymbolPicker(syms)
+}
+
+// showSymbolPicker opens the ListPicker with the given symbol list.
+func (e *Editor) showSymbolPicker(syms []lsp.DocumentSymbol) {
+	e.statusBar.ClearMessage()
+	if len(syms) == 0 {
+		e.statusBar.SetMessage("No symbols found")
+		return
+	}
+
+	items := make([]string, len(syms))
+	for i, s := range syms {
+		kindLabel := lsp.SymbolKindName(s.Kind)
+		label := fmt.Sprintf("%-10s %s", kindLabel, s.Name)
+		if s.Detail != "" {
+			label += "  (" + s.Detail + ")"
+		}
+		label += fmt.Sprintf("  :%d", s.Range.Start.Line+1)
+		items[i] = label
+	}
+
+	e.listPicker.Show("Go to Symbol", items)
+	e.listPicker.SetOnSelect(func(item string) {
+		// Find matching symbol by index
+		for i, label := range items {
+			if label == item && i < len(syms) {
+				line := syms[i].Range.Start.Line
+				col := syms[i].SelectionRange.Start.Character
+				if e.editorView != nil {
+					e.editorView.SetCursorPosition(types.Position{Line: line, Col: col})
+					e.syncTabFromView()
+				}
+				break
+			}
+		}
+	})
+	e.listPicker.SetOnCancel(func() {
+		e.listPicker.Hide()
+	})
+}
+
+// extractSymbolsRegex extracts symbols from source text using regex patterns.
+func extractSymbolsRegex(text, lang string) []lsp.DocumentSymbol {
+	var syms []lsp.DocumentSymbol
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		var name string
+		var kind lsp.SymbolKind
+		switch lang {
+		case "go":
+			if strings.HasPrefix(trimmed, "func ") {
+				rest := strings.TrimPrefix(trimmed, "func ")
+				// strip receiver: func (r Recv) Name(
+				if strings.HasPrefix(rest, "(") {
+					if end := strings.Index(rest, ")"); end >= 0 {
+						rest = strings.TrimSpace(rest[end+1:])
+					}
+				}
+				if paren := strings.Index(rest, "("); paren > 0 {
+					name = rest[:paren]
+					kind = lsp.SymbolKindFunction
+				}
+			} else if strings.HasPrefix(trimmed, "type ") {
+				rest := strings.TrimPrefix(trimmed, "type ")
+				parts := strings.Fields(rest)
+				if len(parts) >= 2 {
+					name = parts[0]
+					switch parts[1] {
+					case "struct":
+						kind = lsp.SymbolKindStruct
+					case "interface":
+						kind = lsp.SymbolKindInterface
+					default:
+						kind = lsp.SymbolKindVariable
+					}
+				}
+			}
+		case "python":
+			if strings.HasPrefix(trimmed, "def ") {
+				rest := strings.TrimPrefix(trimmed, "def ")
+				if paren := strings.Index(rest, "("); paren > 0 {
+					name = rest[:paren]
+					kind = lsp.SymbolKindFunction
+				}
+			} else if strings.HasPrefix(trimmed, "class ") {
+				rest := strings.TrimPrefix(trimmed, "class ")
+				end := strings.IndexAny(rest, "(:")
+				if end > 0 {
+					name = rest[:end]
+				} else {
+					name = rest
+				}
+				kind = lsp.SymbolKindClass
+			}
+		case "javascript", "typescript":
+			if strings.HasPrefix(trimmed, "function ") {
+				rest := strings.TrimPrefix(trimmed, "function ")
+				if paren := strings.Index(rest, "("); paren > 0 {
+					name = rest[:paren]
+					kind = lsp.SymbolKindFunction
+				}
+			} else if strings.HasPrefix(trimmed, "class ") {
+				rest := strings.TrimPrefix(trimmed, "class ")
+				end := strings.IndexAny(rest, "{ ")
+				if end > 0 {
+					name = rest[:end]
+				} else {
+					name = rest
+				}
+				kind = lsp.SymbolKindClass
+			} else if strings.Contains(trimmed, "= function") || strings.Contains(trimmed, "= (") || strings.Contains(trimmed, "= async") {
+				// Arrow or assigned function
+				if eq := strings.Index(trimmed, "="); eq > 0 {
+					name = strings.TrimSpace(strings.TrimLeft(trimmed[:eq], "constletvar "))
+					kind = lsp.SymbolKindFunction
+				}
+			}
+		}
+		if name != "" {
+			r := lsp.Range{
+				Start: lsp.Position{Line: i},
+				End:   lsp.Position{Line: i},
+			}
+			syms = append(syms, lsp.DocumentSymbol{
+				Name:           strings.TrimSpace(name),
+				Kind:           kind,
+				Range:          r,
+				SelectionRange: r,
+			})
+		}
+	}
+	return syms
 }
 
 // lspNotifyOpen notifies LSP that a file was opened.

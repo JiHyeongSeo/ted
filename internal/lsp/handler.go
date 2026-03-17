@@ -195,6 +195,79 @@ func RequestReferences(client *Client, uri string, line, character int) (*Respon
 	return client.Call("textDocument/references", params)
 }
 
+// RequestDocumentSymbols requests document symbols for the given URI.
+func RequestDocumentSymbols(client *Client, uri string) (*Response, error) {
+	params := DocumentSymbolParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+	}
+	return client.Call("textDocument/documentSymbol", params)
+}
+
+// ParseDocumentSymbols parses a documentSymbol response.
+// Returns a flat list of (name, kind, line) tuples from both nested DocumentSymbol
+// and flat SymbolInformation formats.
+func ParseDocumentSymbols(resp *Response) ([]DocumentSymbol, error) {
+	if resp.Error != nil {
+		return nil, fmt.Errorf("documentSymbol error: %s", resp.Error.Message)
+	}
+
+	data, err := json.Marshal(resp.Result)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try nested DocumentSymbol[] first
+	var docSyms []DocumentSymbol
+	if err := json.Unmarshal(data, &docSyms); err == nil && len(docSyms) > 0 {
+		return flattenDocumentSymbols(docSyms, ""), nil
+	}
+
+	// Try flat SymbolInformation[]
+	var symInfos []SymbolInformation
+	if err := json.Unmarshal(data, &symInfos); err == nil {
+		result := make([]DocumentSymbol, 0, len(symInfos))
+		for _, si := range symInfos {
+			sym := DocumentSymbol{
+				Name: si.Name,
+				Kind: si.Kind,
+				Range: Range{
+					Start: si.Location.Range.Start,
+					End:   si.Location.Range.End,
+				},
+				SelectionRange: si.Location.Range,
+			}
+			if si.ContainerName != "" {
+				sym.Detail = si.ContainerName
+			}
+			result = append(result, sym)
+		}
+		return result, nil
+	}
+
+	return nil, nil
+}
+
+// flattenDocumentSymbols flattens a nested symbol tree into a flat list.
+func flattenDocumentSymbols(syms []DocumentSymbol, prefix string) []DocumentSymbol {
+	var result []DocumentSymbol
+	for _, s := range syms {
+		flat := s
+		if prefix != "" {
+			flat.Detail = prefix
+		}
+		flat.Children = nil
+		result = append(result, flat)
+		if len(s.Children) > 0 {
+			childPrefix := s.Name
+			if prefix != "" {
+				childPrefix = prefix + "." + s.Name
+			}
+			result = append(result, flattenDocumentSymbols(s.Children, childPrefix)...)
+		}
+	}
+	return result
+}
+
 // ParseCompletionResponse parses a completion response into items.
 func ParseCompletionResponse(resp *Response) ([]CompletionItem, error) {
 	if resp.Error != nil {
