@@ -12,7 +12,7 @@ func TestProjectSearchGo(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("hello there\nno match here"), 0644)
 
 	ps := NewProjectSearch(dir, nil, false)
-	matches, err := ps.Search("hello", false)
+	matches, err := ps.Search("hello", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestProjectSearchExcludes(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "node_modules", "b.txt"), []byte("find me"), 0644)
 
 	ps := NewProjectSearch(dir, []string{"node_modules"}, false)
-	matches, err := ps.Search("find me", false)
+	matches, err := ps.Search("find me", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestProjectSearchRegex(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "test.txt"), []byte("abc 123\ndef 456"), 0644)
 
 	ps := NewProjectSearch(dir, nil, false)
-	matches, err := ps.Search(`\d+`, true)
+	matches, err := ps.Search(`\d+`, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestProjectSearchNoMatches(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello world"), 0644)
 
 	ps := NewProjectSearch(dir, nil, false)
-	matches, err := ps.Search("nonexistent", false)
+	matches, err := ps.Search("nonexistent", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

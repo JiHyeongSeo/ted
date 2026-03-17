@@ -9,8 +9,8 @@ import (
 func TestBottomPanelCreation(t *testing.T) {
 	theme := syntax.DefaultTheme()
 	p := NewBottomPanel(theme)
-	if len(p.tabs) != 3 {
-		t.Errorf("expected 3 tabs, got %d", len(p.tabs))
+	if len(p.tabs) != 2 {
+		t.Errorf("expected 2 tabs, got %d", len(p.tabs))
 	}
 	if p.ActiveTab() != 0 {
 		t.Errorf("expected active tab 0, got %d", p.ActiveTab())
