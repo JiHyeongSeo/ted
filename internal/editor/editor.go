@@ -808,10 +808,7 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 					e.graphGitRemoteMenu() // push / pull / fetch
 					return
 				case 'm':
-					e.graphGitIntegrateMenu() // merge / rebase
-					return
-				case 'i':
-					e.graphGitInteractiveRebase()
+					e.graphGitIntegrateMenu() // merge / rebase onto / interactive rebase
 					return
 				case 'b':
 					e.graphGitBranchMenu()
@@ -1062,7 +1059,7 @@ func (e *Editor) render() {
 				// Set context-sensitive key hints on status bar
 				switch e.graphFocus {
 				case 0:
-					e.statusBar.SetRightHint("c:commit  a:stage  p:remote  m:integrate  i:rebase  b:branch  t:tag  s:stash")
+					e.statusBar.SetRightHint("c:commit  a:stage  p:remote  m:integrate  b:branch  t:tag  s:stash")
 				case 1:
 					e.statusBar.SetRightHint("Space:stage  u:unstage  Enter:diff  Esc:back")
 				case 2:

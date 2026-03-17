@@ -20,14 +20,6 @@ const (
 	RebaseActionReword RebaseAction = "reword"
 )
 
-var rebaseActionCycle = []RebaseAction{
-	RebaseActionPick,
-	RebaseActionSquash,
-	RebaseActionFixup,
-	RebaseActionDrop,
-	RebaseActionReword,
-}
-
 // RebaseViewEntry is one row in the RebaseView.
 type RebaseViewEntry struct {
 	Action RebaseAction
@@ -164,7 +156,7 @@ func (rv *RebaseView) Render(screen tcell.Screen) {
 	}
 
 	// Hint line
-	hint := " Space:cycle action  Enter:execute  Esc:cancel"
+	hint := " p:pick  s:squash  f:fixup  d:drop  r:reword  Enter:execute  Esc:cancel"
 	drawStr(screen, bounds.X, bounds.Y+bounds.Height-1, hint, hintStyle)
 }
 
@@ -197,8 +189,21 @@ func (rv *RebaseView) HandleEvent(ev tcell.Event) bool {
 		}
 		return true
 	case tcell.KeyRune:
-		if kev.Rune() == ' ' {
-			rv.cycleAction(rv.cursor)
+		switch kev.Rune() {
+		case 'p':
+			rv.setAction(rv.cursor, RebaseActionPick)
+			return true
+		case 's':
+			rv.setAction(rv.cursor, RebaseActionSquash)
+			return true
+		case 'f':
+			rv.setAction(rv.cursor, RebaseActionFixup)
+			return true
+		case 'd':
+			rv.setAction(rv.cursor, RebaseActionDrop)
+			return true
+		case 'r':
+			rv.setAction(rv.cursor, RebaseActionReword)
 			return true
 		}
 	case tcell.KeyEnter:
@@ -215,16 +220,9 @@ func (rv *RebaseView) HandleEvent(ev tcell.Event) bool {
 	return false
 }
 
-func (rv *RebaseView) cycleAction(idx int) {
+func (rv *RebaseView) setAction(idx int, action RebaseAction) {
 	if idx < 0 || idx >= len(rv.entries) {
 		return
 	}
-	cur := rv.entries[idx].Action
-	for i, a := range rebaseActionCycle {
-		if a == cur {
-			rv.entries[idx].Action = rebaseActionCycle[(i+1)%len(rebaseActionCycle)]
-			return
-		}
-	}
-	rv.entries[idx].Action = RebaseActionPick
+	rv.entries[idx].Action = action
 }

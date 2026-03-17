@@ -837,20 +837,22 @@ func (e *Editor) graphGitRemoteMenu() {
 	})
 }
 
-// graphGitIntegrateMenu is the unified integrate menu (m key): merge / rebase.
+// graphGitIntegrateMenu is the unified integrate menu (m key): merge / rebase / interactive rebase.
 func (e *Editor) graphGitIntegrateMenu() {
 	if e.diffTracker == nil {
 		return
 	}
-	actions := []string{"Merge", "Rebase"}
+	actions := []string{"Merge", "Rebase onto", "Interactive rebase"}
 	e.listPicker.Show("Integrate", actions)
 	e.listPicker.SetOnCancel(func() {})
 	e.listPicker.SetOnSelect(func(action string) {
 		switch action {
 		case "Merge":
 			e.graphGitMerge()
-		case "Rebase":
+		case "Rebase onto":
 			e.graphGitRebase()
+		case "Interactive rebase":
+			e.graphGitInteractiveRebase()
 		}
 	})
 }
