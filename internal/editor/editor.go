@@ -82,6 +82,7 @@ type Editor struct {
 	pasteActive        bool
 	mouseDown          bool   // tracking mouse button1 press for drag selection
 	configDir          string // user config directory (for session, keybindings, etc.)
+	lastEditTime       time.Time // last time the buffer was modified (for auto-save)
 }
 
 // New creates a new Editor instance.
@@ -463,6 +464,29 @@ func (e *Editor) Run(screen tcell.Screen) error {
 
 	defer e.lspManager.StopAll()
 
+	// Start auto-save ticker (checks every 30 seconds, saves after 10 min idle)
+	e.lastEditTime = time.Now()
+	saveTicker := time.NewTicker(30 * time.Second)
+	defer saveTicker.Stop()
+	go func() {
+		for range saveTicker.C {
+			if !e.running {
+				return
+			}
+			if time.Since(e.lastEditTime) >= 10*time.Minute {
+				tab := e.tabs.Active()
+				if tab != nil && tab.Kind == TabKindFile && tab.Buffer.IsDirty() && tab.Buffer.Path() != "" {
+					if err := tab.Buffer.Save(); err == nil {
+						e.statusBar.SetMessage("Auto-saved: " + filepath.Base(tab.Buffer.Path()))
+					}
+					if e.screen != nil {
+						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					}
+				}
+			}
+		}
+	}()
+
 	// Start auto-fetch ticker (every 60 seconds)
 	fetchTicker := time.NewTicker(60 * time.Second)
 	defer fetchTicker.Stop()
@@ -513,6 +537,7 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				if text := e.readSystemClipboard(); text != "" && e.editorView != nil {
 					e.editorView.InsertText(text)
 					e.syncTabFromView()
+					e.lastEditTime = time.Now()
 				}
 				e.render()
 			}
@@ -861,6 +886,11 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 			e.syncRightTab()
 		} else {
 			e.syncTabFromView()
+		}
+		// Track last edit time for auto-save
+		k := ev.Key()
+		if k == tcell.KeyRune || k == tcell.KeyBackspace || k == tcell.KeyBackspace2 || k == tcell.KeyDelete || k == tcell.KeyEnter {
+			e.lastEditTime = time.Now()
 		}
 		// Clear project search highlights on any edit action
 		if e.projectSearchQuery != "" {
