@@ -41,6 +41,7 @@ type EditorView struct {
 	blameData        []git.BlameLine  // raw blame data per line (for click handling)
 	blameWidth       int              // display width of blame column
 	onBlameClick     func(hash string) // callback when blame hash is clicked
+	lineBackgrounds  map[int]tcell.Color // per-line background color override (0-based line index)
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -169,6 +170,15 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		lineText := e.buf.Line(lineNum)
 		lineRunes := []rune(lineText)
 		textStyle := e.theme.UIStyle("default")
+
+		// Apply per-line background override (e.g. conflict highlighting)
+		if e.lineBackgrounds != nil {
+			if bg, ok := e.lineBackgrounds[lineNum]; ok {
+				_, _, attrs := textStyle.Decompose()
+				fg, _, _ := textStyle.Decompose()
+				textStyle = tcell.StyleDefault.Foreground(fg).Background(bg).Attributes(attrs)
+			}
+		}
 
 		// Get syntax highlighting tokens (prefer tree-sitter)
 		var tokens []syntax.Token
@@ -1118,6 +1128,12 @@ func (e *EditorView) ClearSearchHighlights() {
 // SetGutterMarkers sets the git diff gutter markers.
 func (e *EditorView) SetGutterMarkers(markers map[int]types.GutterMark) {
 	e.gutterMarkers = markers
+}
+
+// SetLineBackgrounds sets per-line background color overrides (e.g. for conflict highlighting).
+// Keys are 0-based line indices.
+func (e *EditorView) SetLineBackgrounds(m map[int]tcell.Color) {
+	e.lineBackgrounds = m
 }
 
 // SetBlame sets the blame info for display in the gutter.

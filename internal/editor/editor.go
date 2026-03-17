@@ -15,6 +15,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/JiHyeongSeo/ted/internal/buffer"
 	"github.com/JiHyeongSeo/ted/internal/config"
+	"github.com/JiHyeongSeo/ted/internal/conflict"
 	"github.com/JiHyeongSeo/ted/internal/git"
 	"github.com/JiHyeongSeo/ted/internal/input"
 	"github.com/JiHyeongSeo/ted/internal/lsp"
@@ -827,6 +828,31 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 
+	// Conflict resolution: intercept o/t/b when cursor is inside a conflict block
+	if ev.Key() == tcell.KeyRune && e.editorView != nil {
+		r := ev.Rune()
+		if r == 'o' || r == 't' || r == 'b' {
+			tab := e.tabs.Active()
+			if tab != nil && tab.Kind == TabKindFile {
+				lines := strings.Split(tab.Buffer.Text(), "\n")
+				blocks := conflict.Parse(lines)
+				if block := conflict.BlockAt(blocks, e.editorView.CursorPosition().Line); block != nil {
+					var choice string
+					switch r {
+					case 'o':
+						choice = "ours"
+					case 't':
+						choice = "theirs"
+					case 'b':
+						choice = "both"
+					}
+					e.resolveConflict(*block, lines, choice)
+					return
+				}
+			}
+		}
+	}
+
 	// Pass to active editor view for text input
 	av := e.activeEditorView()
 	if av != nil {
@@ -1313,6 +1339,48 @@ func (e *Editor) updateGutterMarkers() {
 		return
 	}
 	e.editorView.SetGutterMarkers(markers)
+	e.updateConflictHighlights()
+}
+
+// updateConflictHighlights detects conflict markers in the current buffer
+// and applies per-line background colors to the editor view.
+func (e *Editor) updateConflictHighlights() {
+	if e.editorView == nil {
+		return
+	}
+	tab := e.tabs.Active()
+	if tab == nil {
+		return
+	}
+	lines := strings.Split(tab.Buffer.Text(), "\n")
+	blocks := conflict.Parse(lines)
+	if len(blocks) == 0 {
+		e.editorView.SetLineBackgrounds(nil)
+		return
+	}
+
+	theme := e.theme
+	bgOursMarker := theme.ResolveColor("#5a3e00")   // dark orange — <<<<<<< / >>>>>>>
+	bgOursContent := theme.ResolveColor("#1a3d1a")  // dark green  — ours lines
+	bgSep := theme.ResolveColor("#2a2a2a")          // dark gray   — =======
+	bgTheirsContent := theme.ResolveColor("#3d1a1a") // dark red   — theirs lines
+
+	m := make(map[int]tcell.Color)
+	for _, b := range blocks {
+		m[b.OursStart] = bgOursMarker
+		for l := b.OursStart + 1; l < b.Sep; l++ {
+			m[l] = bgOursContent
+		}
+		m[b.Sep] = bgSep
+		for l := b.Sep + 1; l < b.TheirsEnd; l++ {
+			m[l] = bgTheirsContent
+		}
+		m[b.TheirsEnd] = bgOursMarker
+	}
+	e.editorView.SetLineBackgrounds(m)
+
+	// Show conflict count in status bar
+	e.statusBar.SetMessage(fmt.Sprintf("%d conflict block(s) — o:ours  t:theirs  b:both", len(blocks)))
 }
 
 func (e *Editor) registerCommands() {
@@ -2048,6 +2116,29 @@ func (e *Editor) forceCloseTab(tab *TabInfo) {
 		e.OpenEmpty()
 	}
 	e.syncViewToTab()
+}
+
+// resolveConflict resolves a single conflict block in the current buffer.
+func (e *Editor) resolveConflict(block conflict.Block, lines []string, choice string) {
+	tab := e.tabs.Active()
+	if tab == nil {
+		return
+	}
+	newLines := conflict.Resolve(lines, block, choice)
+	newText := strings.Join(newLines, "\n")
+	oldLen := len(tab.Buffer.Text())
+	if oldLen > 0 {
+		tab.Buffer.Delete(0, 0, oldLen)
+	}
+	tab.Buffer.Insert(0, 0, newText)
+	e.syncViewToTab()
+	e.updateConflictHighlights()
+	remaining := len(conflict.Parse(newLines))
+	if remaining == 0 {
+		e.statusBar.SetMessage("All conflicts resolved")
+	} else {
+		e.statusBar.SetMessage(fmt.Sprintf("%d conflict(s) remaining", remaining))
+	}
 }
 
 // wireCSVEdit connects a CSVView's edit callback to the editor's inputBar and buffer.
