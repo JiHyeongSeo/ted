@@ -768,6 +768,17 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 
+	// Diff tab event handling
+	if tab != nil && tab.Kind == TabKindDiff && tab.DiffView != nil {
+		if ev.Key() == tcell.KeyEscape {
+			e.closeCurrentTab()
+			return
+		}
+		if tab.DiffView.HandleEvent(ev) {
+			return
+		}
+	}
+
 	// Interactive rebase overlay — takes priority over graph events
 	if e.rebaseView != nil {
 		if e.rebaseView.HandleEvent(ev) {
@@ -981,6 +992,13 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		}
 	}
 
+	// Diff tab mouse events
+	if tab != nil && tab.Kind == TabKindDiff && tab.DiffView != nil {
+		if tab.DiffView.HandleEvent(ev) {
+			return
+		}
+	}
+
 	// Graph view mouse events
 	tab = e.tabs.Active()
 	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
@@ -1050,6 +1068,8 @@ func (e *Editor) render() {
 			title := ""
 			if t.Kind == TabKindGraph {
 				title = "⎇ Git Graph"
+			} else if t.Kind == TabKindDiff {
+				title = "↔ " + t.DiffTitle
 			} else if t.Kind == TabKindCSV {
 				title = filepath.Base(t.Buffer.Path())
 			} else if t.Buffer.Path() != "" {
@@ -1145,6 +1165,11 @@ func (e *Editor) render() {
 				e.statusBar.SetRightHint("↑↓:row  ←→:scroll  PgUp/Dn  Home/End")
 				e.csvView.SetBounds(r)
 				e.csvView.Render(e.screen)
+			} else if tab != nil && tab.Kind == TabKindDiff && tab.DiffView != nil {
+				e.statusBar.SetRightHint("↑↓:scroll  ←→:horizontal  PgUp/Dn  Home/End")
+				tab.DiffView.SetBounds(r)
+				tab.DiffView.SetFocused(true)
+				tab.DiffView.Render(e.screen)
 			} else {
 				e.statusBar.SetRightHint("")
 				if e.editorView != nil {
@@ -1265,6 +1290,12 @@ func (e *Editor) syncViewToTab() {
 	if tab.Kind == TabKindCSV {
 		e.editorView = nil
 		e.csvView = tab.CSVView
+		return
+	}
+
+	if tab.Kind == TabKindDiff {
+		e.editorView = nil
+		e.csvView = nil
 		return
 	}
 
@@ -1426,6 +1457,17 @@ func (e *Editor) registerCommands() {
 			return nil
 		},
 	})
+
+	e.commands.Register(&Command{
+		Name:        "file.compare",
+		Description: "Compare two files side by side",
+		Execute: func(ctx EditorContext) error {
+			if ed, ok := ctx.(*Editor); ok {
+				ed.promptCompareFiles()
+			}
+			return nil
+		},
+	})
 }
 
 func (e *Editor) updatePaletteItems() {
@@ -1544,6 +1586,7 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+k ctrl+i", "lsp.hover", "")
 	e.keymap.Bind("ctrl+shift+p", "palette.open", "")
 	e.keymap.Bind("ctrl+shift+g", "git.graph", "")
+	e.keymap.Bind("ctrl+shift+d", "file.compare", "")
 	// Load additional keybindings from JSON config file.
 	// Lookup order: user config (~/.config/ted/keybindings.json) then
 	// project-local (.ted/keybindings.json), so project settings win.
@@ -2224,6 +2267,16 @@ func (e *Editor) closeCurrentTab() {
 		return
 	}
 
+	if tab.Kind == TabKindDiff {
+		idx := e.tabs.ActiveIndex()
+		e.tabs.Close(idx)
+		if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
+			e.OpenEmpty()
+		}
+		e.syncViewToTab()
+		return
+	}
+
 	if tab.Deleted && tab.Buffer.IsDirty() {
 		// File was deleted and has unsaved edits — ask to discard
 		name := filepath.Base(tab.Buffer.Path())
@@ -2826,4 +2879,81 @@ func (e *Editor) handleMouseHover(mx, my int) {
 
 func isWordChar(ch rune) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
+}
+
+// promptCompareFiles asks for two file paths and opens a diff tab.
+func (e *Editor) promptCompareFiles() {
+	// Default left: current file path if editing a file
+	defaultLeft := ""
+	if tab := e.tabs.Active(); tab != nil && tab.Kind == TabKindFile {
+		defaultLeft = tab.Buffer.Path()
+	}
+
+	prompt1 := "Compare - left file: "
+	if defaultLeft != "" {
+		prompt1 = fmt.Sprintf("Compare - left file [%s]: ", filepath.Base(defaultLeft))
+	}
+
+	e.inputBar.Show(prompt1)
+	e.inputBar.SetOnSubmit(func(leftInput string) {
+		e.inputBar.Hide()
+		leftPath := strings.TrimSpace(leftInput)
+		if leftPath == "" {
+			leftPath = defaultLeft
+		}
+		if leftPath == "" {
+			e.statusBar.SetMessage("Compare cancelled: no left file")
+			return
+		}
+		if !filepath.IsAbs(leftPath) {
+			leftPath = filepath.Join(e.projectRoot, leftPath)
+		}
+
+		e.inputBar.Show(fmt.Sprintf("Compare - right file (vs %s): ", filepath.Base(leftPath)))
+		e.inputBar.SetOnSubmit(func(rightInput string) {
+			e.inputBar.Hide()
+			rightPath := strings.TrimSpace(rightInput)
+			if rightPath == "" {
+				e.statusBar.SetMessage("Compare cancelled: no right file")
+				return
+			}
+			if !filepath.IsAbs(rightPath) {
+				rightPath = filepath.Join(e.projectRoot, rightPath)
+			}
+			e.openFileDiff(leftPath, rightPath)
+		})
+	})
+}
+
+// openFileDiff opens a new tab showing a side-by-side diff of two files.
+func (e *Editor) openFileDiff(leftPath, rightPath string) {
+	leftBytes, err := os.ReadFile(leftPath)
+	if err != nil {
+		e.statusBar.SetMessage("Cannot read: " + leftPath)
+		return
+	}
+	rightBytes, err := os.ReadFile(rightPath)
+	if err != nil {
+		e.statusBar.SetMessage("Cannot read: " + rightPath)
+		return
+	}
+
+	title := fmt.Sprintf("%s ↔ %s", filepath.Base(leftPath), filepath.Base(rightPath))
+	dv := view.NewDiffView(e.theme, string(leftBytes), string(rightBytes), title, leftPath)
+	dv.SetOnCopy(func(text string) {
+		e.copyToSystemClipboard(text)
+	})
+
+	buf := buffer.NewBuffer("")
+	tab := &TabInfo{
+		Kind:      TabKindDiff,
+		Buffer:    buf,
+		DiffView:  dv,
+		DiffTitle: title,
+	}
+	e.tabs.openTab(tab)
+	e.syncViewToTab()
+	e.sidebarFocus = false
+	e.panelFocus = false
+	e.statusBar.SetMessage("Comparing: " + title)
 }

@@ -13,18 +13,21 @@ const (
 	TabKindFile  TabKind = iota // file editing tab
 	TabKindGraph                // git graph tab
 	TabKindCSV                  // CSV table view tab
+	TabKindDiff                 // file comparison (side-by-side diff)
 )
 
 // TabInfo holds the state of a single editor tab.
 type TabInfo struct {
-	Kind     TabKind
-	Buffer   *buffer.Buffer
-	Cursor   types.Position
-	ScrollY  int
-	ScrollX  int
-	Language string
-	Deleted  bool         // true when the file was deleted from disk while open
-	CSVView  *view.CSVView // non-nil for TabKindCSV tabs
+	Kind      TabKind
+	Buffer    *buffer.Buffer
+	Cursor    types.Position
+	ScrollY   int
+	ScrollX   int
+	Language  string
+	Deleted   bool          // true when the file was deleted from disk while open
+	CSVView   *view.CSVView // non-nil for TabKindCSV tabs
+	DiffView  *view.DiffView // non-nil for TabKindDiff tabs
+	DiffTitle string         // short title shown on tab bar for diff tabs
 }
 
 // TabManager manages open file tabs.
@@ -44,6 +47,13 @@ func (tm *TabManager) Open(buf *buffer.Buffer, language string) int {
 		Buffer:   buf,
 		Language: language,
 	}
+	tm.tabs = append(tm.tabs, tab)
+	tm.activeIdx = len(tm.tabs) - 1
+	return tm.activeIdx
+}
+
+// openTab adds a pre-built tab and makes it active.
+func (tm *TabManager) openTab(tab *TabInfo) int {
 	tm.tabs = append(tm.tabs, tab)
 	tm.activeIdx = len(tm.tabs) - 1
 	return tm.activeIdx
