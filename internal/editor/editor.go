@@ -2609,17 +2609,17 @@ func (e *Editor) goToSymbol() {
 		e.statusBar.SetMessage("Loading symbols...")
 		go func() {
 			resp, err := lsp.RequestDocumentSymbols(client, uri)
+			var syms []lsp.DocumentSymbol
 			if err == nil && resp != nil {
-				syms, _ := lsp.ParseDocumentSymbols(resp)
-				e.lspSymbolResult <- syms
-				if e.screen != nil {
-					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
-				}
-				return
+				syms, _ = lsp.ParseDocumentSymbols(resp)
+			} else {
+				// LSP failed, fall back to regex
+				syms = extractSymbolsRegex(tab.Buffer.Text(), tab.Language)
 			}
-			// LSP failed, fall back to regex
-			syms := extractSymbolsRegex(tab.Buffer.Text(), tab.Language)
-			e.lspSymbolResult <- syms
+			select {
+			case e.lspSymbolResult <- syms:
+			default: // channel full, discard
+			}
 			if e.screen != nil {
 				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 			}
@@ -2660,6 +2660,15 @@ func (e *Editor) showSymbolPicker(syms []lsp.DocumentSymbol) {
 				col := syms[i].SelectionRange.Start.Character
 				if e.editorView != nil {
 					e.editorView.SetCursorPosition(types.Position{Line: line, Col: col})
+					// Center the view on the target line
+					bounds := e.editorView.Bounds()
+					if bounds.Height > 0 {
+						scrollY := line - bounds.Height/2
+						if scrollY < 0 {
+							scrollY = 0
+						}
+						e.editorView.SetScrollY(scrollY)
+					}
 					e.syncTabFromView()
 				}
 				break
@@ -3117,19 +3126,125 @@ func isWordChar(ch rune) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
 }
 
-// promptCompareFiles asks for two file paths and opens a diff tab.
+// promptCompareFiles opens a two-step file picker to choose files for comparison.
 func (e *Editor) promptCompareFiles() {
-	// Default left: current file path if editing a file
+	files, labels := e.collectProjectFiles()
+	if len(files) == 0 {
+		// No project files — fall back to input bar
+		e.promptCompareFilesInputBar()
+		return
+	}
+
+	// Default left: mark current file if present
 	defaultLeft := ""
 	if tab := e.tabs.Active(); tab != nil && tab.Kind == TabKindFile {
 		defaultLeft = tab.Buffer.Path()
 	}
 
+	// Step 1: pick left file
+	e.listPicker.Show("Compare: select LEFT file", labels)
+	e.listPicker.SetOnSelect(func(leftLabel string) {
+		leftIdx := -1
+		for i, l := range labels {
+			if l == leftLabel {
+				leftIdx = i
+				break
+			}
+		}
+		if leftIdx < 0 {
+			return
+		}
+		leftPath := files[leftIdx]
+
+		// Step 2: pick right file
+		e.listPicker.Show(fmt.Sprintf("Compare: select RIGHT file (vs %s)", filepath.Base(leftPath)), labels)
+		e.listPicker.SetOnSelect(func(rightLabel string) {
+			rightIdx := -1
+			for i, l := range labels {
+				if l == rightLabel {
+					rightIdx = i
+					break
+				}
+			}
+			if rightIdx < 0 {
+				return
+			}
+			rightPath := files[rightIdx]
+			e.listPicker.Hide()
+			e.openFileDiff(leftPath, rightPath)
+		})
+		e.listPicker.SetOnCancel(func() {
+			e.listPicker.Hide()
+		})
+	})
+	e.listPicker.SetOnCancel(func() {
+		e.listPicker.Hide()
+	})
+
+	// Pre-select current file for left side
+	_ = defaultLeft
+}
+
+// collectProjectFiles returns (absolute paths, display labels) for all project files.
+func (e *Editor) collectProjectFiles() ([]string, []string) {
+	root := e.projectRoot
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if root == "" {
+		return nil, nil
+	}
+
+	var paths []string
+	var labels []string
+	seen := map[string]bool{}
+
+	// Recent files first
+	for _, f := range e.recentFiles.Files {
+		rel, err := filepath.Rel(root, f)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if _, err := os.Stat(f); err != nil {
+			continue
+		}
+		paths = append(paths, f)
+		labels = append(labels, rel+" (recent)")
+		seen[f] = true
+	}
+
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := info.Name()
+		if info.IsDir() {
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" || name == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(name, ".") || seen[path] {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		paths = append(paths, path)
+		labels = append(labels, rel)
+		return nil
+	})
+	return paths, labels
+}
+
+// promptCompareFilesInputBar is the fallback text-entry compare (no project root).
+func (e *Editor) promptCompareFilesInputBar() {
+	defaultLeft := ""
+	if tab := e.tabs.Active(); tab != nil && tab.Kind == TabKindFile {
+		defaultLeft = tab.Buffer.Path()
+	}
 	prompt1 := "Compare - left file: "
 	if defaultLeft != "" {
 		prompt1 = fmt.Sprintf("Compare - left file [%s]: ", filepath.Base(defaultLeft))
 	}
-
 	e.inputBar.Show(prompt1)
 	e.inputBar.SetOnSubmit(func(leftInput string) {
 		e.inputBar.Hide()
@@ -3144,7 +3259,6 @@ func (e *Editor) promptCompareFiles() {
 		if !filepath.IsAbs(leftPath) {
 			leftPath = filepath.Join(e.projectRoot, leftPath)
 		}
-
 		e.inputBar.Show(fmt.Sprintf("Compare - right file (vs %s): ", filepath.Base(leftPath)))
 		e.inputBar.SetOnSubmit(func(rightInput string) {
 			e.inputBar.Hide()
