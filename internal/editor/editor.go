@@ -628,16 +628,10 @@ func (e *Editor) saveSession() {
 	_ = session.Save(e.configDir, sess)
 }
 
-// restoreSession reopens files from the last session.
+// restoreSession reopens files from the last session for the current project directory.
 func (e *Editor) restoreSession() {
-	sess, err := session.Load(e.configDir)
+	sess, err := session.Load(e.configDir, e.projectRoot)
 	if err != nil || len(sess.Files) == 0 {
-		return
-	}
-
-	// If ted was opened in a specific directory (via argument or cwd differs from
-	// saved session directory), don't restore the old session.
-	if sess.Directory != "" && e.projectRoot != "" && e.projectRoot != sess.Directory {
 		return
 	}
 
