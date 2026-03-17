@@ -1468,6 +1468,33 @@ func (e *Editor) registerCommands() {
 			return nil
 		},
 	})
+
+	e.commands.Register(&Command{
+		Name:        "edit.toggleFold",
+		Description: "Toggle fold at current line",
+		Execute: func(ctx EditorContext) error {
+			if ed, ok := ctx.(*Editor); ok {
+				if ed.editorView != nil {
+					line := ed.editorView.CursorPosition().Line
+					ed.editorView.ToggleFoldAtLine(line)
+				}
+			}
+			return nil
+		},
+	})
+
+	e.commands.Register(&Command{
+		Name:        "edit.unfoldAll",
+		Description: "Unfold all folded blocks",
+		Execute: func(ctx EditorContext) error {
+			if ed, ok := ctx.(*Editor); ok {
+				if ed.editorView != nil {
+					ed.editorView.UnfoldAll()
+				}
+			}
+			return nil
+		},
+	})
 }
 
 func (e *Editor) updatePaletteItems() {
@@ -1587,6 +1614,8 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+shift+p", "palette.open", "")
 	e.keymap.Bind("ctrl+shift+g", "git.graph", "")
 	e.keymap.Bind("ctrl+shift+d", "file.compare", "")
+	e.keymap.Bind("alt+z", "edit.toggleFold", "")
+	e.keymap.Bind("alt+shift+z", "edit.unfoldAll", "")
 	// Load additional keybindings from JSON config file.
 	// Lookup order: user config (~/.config/ted/keybindings.json) then
 	// project-local (.ted/keybindings.json), so project settings win.
@@ -1678,6 +1707,15 @@ func (e *Editor) ExecuteCommand(name string) error {
 			if e.editorView != nil {
 				e.editorView.ReparseHighlighting()
 			}
+		}
+	case "edit.toggleFold":
+		if e.editorView != nil {
+			line := e.editorView.CursorPosition().Line
+			e.editorView.ToggleFoldAtLine(line)
+		}
+	case "edit.unfoldAll":
+		if e.editorView != nil {
+			e.editorView.UnfoldAll()
 		}
 	case "edit.copy":
 		if e.editorView != nil {

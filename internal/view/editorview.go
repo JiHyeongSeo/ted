@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -42,6 +43,7 @@ type EditorView struct {
 	blameWidth       int              // display width of blame column
 	onBlameClick     func(hash string) // callback when blame hash is clicked
 	lineBackgrounds  map[int]tcell.Color // per-line background color override (0-based line index)
+	foldedRanges     map[int]int         // fold start line → fold end line (0-based, inclusive)
 }
 
 // NewEditorView creates an EditorView for the given buffer.
@@ -106,8 +108,8 @@ func (e *EditorView) Render(screen tcell.Screen) {
 	}
 
 	// Draw each visible line
+	lineNum := e.scrollY
 	for row := 0; row < bounds.Height; row++ {
-		lineNum := e.scrollY + row
 		if lineNum >= e.buf.LineCount() {
 			e.clearRow(screen, bounds.Y+row, bounds.X, bounds.Width)
 			continue
@@ -118,6 +120,8 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		if lineNum == e.cursor.Line {
 			lineNumStyle = e.theme.UIStyle("linenumber.active")
 		}
+		// Fold start overrides gutter symbol
+		_, isFoldStart := e.foldedRanges[lineNum]
 		// Apply git gutter marker — color + symbol in the last gutter column
 		gutterSymbol := ' '
 		if mark, ok := e.gutterMarkers[lineNum]; ok && mark != types.MarkNone {
@@ -144,6 +148,9 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		lineNumStr := fmt.Sprintf("%*d", e.lineNumWidth-1, lineNum+1)
 		for i, ch := range lineNumStr {
 			screen.SetContent(bounds.X+i, bounds.Y+row, ch, nil, lineNumStyle)
+		}
+		if isFoldStart {
+			gutterSymbol = '▸'
 		}
 		screen.SetContent(bounds.X+e.lineNumWidth-1, bounds.Y+row, gutterSymbol, nil, lineNumStyle)
 
@@ -278,7 +285,149 @@ func (e *EditorView) Render(screen tcell.Screen) {
 		if lineNum == e.cursor.Line {
 			screen.ShowCursor(e.cursorScreenX, e.cursorScreenY)
 		}
+
+		// Advance lineNum: skip folded range if this is a fold start
+		if foldEnd, ok := e.foldedRanges[lineNum]; ok {
+			// Draw fold indicator "··· N lines" at right of text area
+			foldCount := foldEnd - lineNum
+			indicator := fmt.Sprintf(" ▸ ··· %d lines", foldCount)
+			dimStyle := e.theme.UIStyle("linenumber")
+			col := textAreaX
+			// Find where current text ends (roughly)
+			lineTextWidth := e.lineDisplayWidth(lineNum) - e.scrollX
+			if lineTextWidth < 0 {
+				lineTextWidth = 0
+			}
+			col = textAreaX + lineTextWidth
+			if col < textAreaX {
+				col = textAreaX
+			}
+			for _, ch := range indicator {
+				if col >= textAreaX+textAreaWidth {
+					break
+				}
+				screen.SetContent(col, bounds.Y+row, ch, nil, dimStyle)
+				col++
+			}
+			lineNum = foldEnd + 1
+		} else {
+			lineNum++
+		}
 	}
+}
+
+// --- Code folding ---
+
+// lineIndent returns the indentation level (spaces, tabs count as 4) of a line.
+func lineIndent(text string) int {
+	n := 0
+	for _, ch := range text {
+		if ch == ' ' {
+			n++
+		} else if ch == '\t' {
+			n += 4
+		} else {
+			break
+		}
+	}
+	return n
+}
+
+// computeFoldRange returns the last line of the indentation block starting at startLine.
+// Returns (endLine, true) if a foldable range was found, or (0, false) otherwise.
+func (e *EditorView) computeFoldRange(startLine int) (int, bool) {
+	lineCount := e.buf.LineCount()
+	if startLine >= lineCount-1 {
+		return 0, false
+	}
+	baseIndent := lineIndent(e.buf.Line(startLine))
+	// Next non-blank line must have deeper indent
+	nextContent := -1
+	for i := startLine + 1; i < lineCount; i++ {
+		if strings.TrimSpace(e.buf.Line(i)) != "" {
+			nextContent = i
+			break
+		}
+	}
+	if nextContent < 0 || lineIndent(e.buf.Line(nextContent)) <= baseIndent {
+		return 0, false
+	}
+	end := startLine
+	for i := startLine + 1; i < lineCount; i++ {
+		text := e.buf.Line(i)
+		if strings.TrimSpace(text) == "" {
+			end = i
+			continue
+		}
+		if lineIndent(text) > baseIndent {
+			end = i
+		} else {
+			break
+		}
+	}
+	if end <= startLine {
+		return 0, false
+	}
+	return end, true
+}
+
+// isLineHidden returns true if a line is inside a fold (hidden from view).
+func (e *EditorView) isLineHidden(line int) bool {
+	if e.foldedRanges == nil {
+		return false
+	}
+	for start, end := range e.foldedRanges {
+		if line > start && line <= end {
+			return true
+		}
+	}
+	return false
+}
+
+// buildVisibleLines returns all buffer line numbers that are currently visible (not hidden by folds).
+func (e *EditorView) buildVisibleLines() []int {
+	lineCount := e.buf.LineCount()
+	result := make([]int, 0, lineCount)
+	i := 0
+	for i < lineCount {
+		result = append(result, i)
+		if e.foldedRanges != nil {
+			if end, ok := e.foldedRanges[i]; ok {
+				i = end + 1
+				continue
+			}
+		}
+		i++
+	}
+	return result
+}
+
+// ToggleFoldAtLine folds or unfolds the block starting at startLine.
+func (e *EditorView) ToggleFoldAtLine(startLine int) {
+	if e.foldedRanges == nil {
+		e.foldedRanges = make(map[int]int)
+	}
+	if _, ok := e.foldedRanges[startLine]; ok {
+		// Already folded — unfold
+		delete(e.foldedRanges, startLine)
+		return
+	}
+	end, ok := e.computeFoldRange(startLine)
+	if !ok {
+		return
+	}
+	e.foldedRanges[startLine] = end
+	// If cursor is now hidden, move it to fold start
+	if e.cursor.Line > startLine && e.cursor.Line <= end {
+		e.cursor.Line = startLine
+		e.clampCursorCol()
+		e.ensureCursorVisible()
+	}
+}
+
+// UnfoldAll removes all folds.
+func (e *EditorView) UnfoldAll() {
+	e.foldedRanges = nil
 }
 
 // clearRow clears a row on the screen.
@@ -573,19 +722,36 @@ func (e *EditorView) Clipboard() string {
 	return e.clipboard
 }
 
-// MoveCursorUp moves the cursor up one line.
+// MoveCursorUp moves the cursor up one line, skipping over folded ranges.
 func (e *EditorView) MoveCursorUp() {
 	if e.cursor.Line > 0 {
-		e.cursor.Line--
+		prevLine := e.cursor.Line - 1
+		// If prevLine is hidden inside a fold, jump to fold start
+		if e.foldedRanges != nil {
+			for start, end := range e.foldedRanges {
+				if prevLine > start && prevLine <= end {
+					prevLine = start
+					break
+				}
+			}
+		}
+		e.cursor.Line = prevLine
 		e.clampCursorCol()
 		e.ensureCursorVisible()
 	}
 }
 
-// MoveCursorDown moves the cursor down one line.
+// MoveCursorDown moves the cursor down one line, skipping over folded ranges.
 func (e *EditorView) MoveCursorDown() {
-	if e.cursor.Line < e.buf.LineCount()-1 {
-		e.cursor.Line++
+	nextLine := e.cursor.Line + 1
+	// If current line is a fold start, jump past the fold
+	if e.foldedRanges != nil {
+		if end, ok := e.foldedRanges[e.cursor.Line]; ok {
+			nextLine = end + 1
+		}
+	}
+	if nextLine < e.buf.LineCount() {
+		e.cursor.Line = nextLine
 		e.clampCursorCol()
 		e.ensureCursorVisible()
 	}
@@ -810,11 +976,45 @@ func (e *EditorView) ensureCursorVisible() {
 		return
 	}
 
-	// Vertical scrolling
+	// Vertical scrolling (fold-aware)
 	if e.cursor.Line < e.scrollY {
 		e.scrollY = e.cursor.Line
-	} else if e.cursor.Line >= e.scrollY+bounds.Height {
-		e.scrollY = e.cursor.Line - bounds.Height + 1
+	} else {
+		// Compute visible row of cursor from current scrollY
+		cursorVisRow := 0
+		if e.foldedRanges != nil {
+			i := e.scrollY
+			for i < e.cursor.Line && i < e.buf.LineCount() {
+				cursorVisRow++
+				if end, ok := e.foldedRanges[i]; ok {
+					i = end + 1
+				} else {
+					i++
+				}
+			}
+		} else {
+			cursorVisRow = e.cursor.Line - e.scrollY
+		}
+		if cursorVisRow >= bounds.Height {
+			// Scroll down: find new scrollY so cursor appears near bottom
+			vis := e.buildVisibleLines()
+			cursorIdx := -1
+			for i, l := range vis {
+				if l == e.cursor.Line {
+					cursorIdx = i
+					break
+				}
+			}
+			if cursorIdx >= 0 {
+				startIdx := cursorIdx - bounds.Height + 1
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				e.scrollY = vis[startIdx]
+			} else {
+				e.scrollY = e.cursor.Line - bounds.Height + 1
+			}
+		}
 	}
 
 	// Horizontal scrolling — based on display width, not rune count
