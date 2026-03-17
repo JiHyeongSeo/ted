@@ -634,6 +634,13 @@ func (e *Editor) restoreSession() {
 	if err != nil || len(sess.Files) == 0 {
 		return
 	}
+
+	// If ted was opened in a specific directory (via argument or cwd differs from
+	// saved session directory), don't restore the old session.
+	if sess.Directory != "" && e.projectRoot != "" && e.projectRoot != sess.Directory {
+		return
+	}
+
 	// Restore sidebar directory if not already set
 	if sess.Directory != "" && e.projectRoot == "" {
 		e.OpenDirectory(sess.Directory)
