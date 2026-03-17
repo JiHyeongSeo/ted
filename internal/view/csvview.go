@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"encoding/csv"
 	"strings"
 
@@ -10,16 +11,20 @@ import (
 	"github.com/JiHyeongSeo/ted/internal/types"
 )
 
-// CSVView renders CSV content as a formatted table.
+// CSVView renders CSV content as an editable table.
 type CSVView struct {
 	BaseComponent
-	theme       *syntax.Theme
-	records     [][]string // all rows (including header)
-	colWidths   []int      // max width per column
-	scrollY     int        // first visible row (excluding header)
-	scrollX     int        // horizontal column offset
-	cursorRow   int        // selected data row (0-based, excluding header)
-	title       string
+	theme     *syntax.Theme
+	records   [][]string // all rows (including header at index 0)
+	colWidths []int      // max display width per column
+	scrollY   int        // first visible data row index (0-based, excluding header)
+	scrollX   int        // first visible column index
+	cursorRow int        // selected data row (0-based, excluding header)
+	cursorCol int        // selected column
+	title     string
+	// onEdit is called when the user requests to edit the current cell.
+	// setValue(newVal) must be called by the consumer to commit the new value.
+	onEdit func(row, col int, current string, setValue func(string))
 }
 
 // NewCSVView parses CSV content and returns a CSVView.
@@ -28,9 +33,9 @@ func NewCSVView(theme *syntax.Theme, content, title string) *CSVView {
 	r := csv.NewReader(strings.NewReader(content))
 	r.LazyQuotes = true
 	r.TrimLeadingSpace = true
+	r.FieldsPerRecord = -1
 	records, err := r.ReadAll()
 	if err != nil {
-		// Fallback: split by lines/commas naively
 		records = nil
 		for _, line := range strings.Split(content, "\n") {
 			if line != "" {
@@ -41,6 +46,20 @@ func NewCSVView(theme *syntax.Theme, content, title string) *CSVView {
 	cv.records = records
 	cv.computeColWidths()
 	return cv
+}
+
+// SetOnEdit sets the callback invoked when the user wants to edit a cell.
+func (cv *CSVView) SetOnEdit(fn func(row, col int, current string, setValue func(string))) {
+	cv.onEdit = fn
+}
+
+// Serialize encodes the current records back to CSV text.
+func (cv *CSVView) Serialize() string {
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	_ = w.WriteAll(cv.records)
+	w.Flush()
+	return buf.String()
 }
 
 func (cv *CSVView) computeColWidths() {
@@ -62,10 +81,9 @@ func (cv *CSVView) computeColWidths() {
 			}
 		}
 	}
-	// Cap each column at 40 chars for readability
 	for i := range cv.colWidths {
-		if cv.colWidths[i] < 2 {
-			cv.colWidths[i] = 2
+		if cv.colWidths[i] < 3 {
+			cv.colWidths[i] = 3
 		}
 		if cv.colWidths[i] > 40 {
 			cv.colWidths[i] = 40
@@ -77,7 +95,49 @@ func (cv *CSVView) RowCount() int {
 	if len(cv.records) <= 1 {
 		return 0
 	}
-	return len(cv.records) - 1 // exclude header
+	return len(cv.records) - 1
+}
+
+func (cv *CSVView) ColCount() int {
+	return len(cv.colWidths)
+}
+
+// buildColOffsets returns screen-relative x offsets for each column.
+// Columns before scrollX are mapped to -99999 (hidden).
+func (cv *CSVView) buildColOffsets() []int {
+	offsets := make([]int, len(cv.colWidths))
+	x := 0
+	for i, w := range cv.colWidths {
+		if i < cv.scrollX {
+			offsets[i] = -99999
+		} else {
+			offsets[i] = x
+			x += w + 3 // col width + " │ " separator
+		}
+	}
+	return offsets
+}
+
+// ensureCursorColVisible adjusts scrollX so the cursor column is visible.
+func (cv *CSVView) ensureCursorColVisible() {
+	if cv.cursorCol < cv.scrollX {
+		cv.scrollX = cv.cursorCol
+		return
+	}
+	bounds := cv.Bounds()
+	contentW := bounds.Width - 2
+	x := 0
+	for i := cv.scrollX; i < len(cv.colWidths); i++ {
+		if i == cv.cursorCol {
+			if x+cv.colWidths[i] <= contentW {
+				return
+			}
+			cv.scrollX++
+			cv.ensureCursorColVisible()
+			return
+		}
+		x += cv.colWidths[i] + 3
+	}
 }
 
 func (cv *CSVView) Render(screen tcell.Screen) {
@@ -89,9 +149,11 @@ func (cv *CSVView) Render(screen tcell.Screen) {
 	baseStyle := cv.theme.UIStyle("default")
 	headerStyle := baseStyle.Bold(true).Foreground(cv.theme.ResolveColor("#c8c8c8"))
 	sepStyle := baseStyle.Foreground(cv.theme.ResolveColor("#505050"))
-	cursorStyle := baseStyle.Background(cv.theme.ResolveColor("#264f78"))
+	cursorRowStyle := baseStyle.Background(cv.theme.ResolveColor("#264f78"))
+	cursorCellStyle := baseStyle.Background(cv.theme.ResolveColor("#1e6ab4")).Bold(true)
 	altStyle := baseStyle.Background(cv.theme.ResolveColor("#1e1e2e"))
 	titleStyle := baseStyle.Foreground(cv.theme.ResolveColor("#c8c8c8")).Bold(true)
+	statusStyle := baseStyle.Foreground(cv.theme.ResolveColor("#808080"))
 
 	// Clear
 	for y := bounds.Y; y < bounds.Y+bounds.Height; y++ {
@@ -108,102 +170,93 @@ func (cv *CSVView) Render(screen tcell.Screen) {
 	// Title bar
 	titleStr := " CSV: " + cv.title
 	if cv.scrollX > 0 {
-		titleStr += " [→col:" + itoa(cv.scrollX) + "]"
+		titleStr += " [col+" + itoa(cv.scrollX) + "]"
 	}
 	drawStr(screen, bounds.X, bounds.Y, titleStr, titleStyle)
 	for x := bounds.X + runewidth.StringWidth(titleStr); x < bounds.X+bounds.Width; x++ {
 		screen.SetContent(x, bounds.Y, '─', nil, sepStyle)
 	}
 
-	// Compute visible columns based on scrollX
 	colOffsets := cv.buildColOffsets()
-	contentH := bounds.Height - 1 // minus title bar
+	contentH := bounds.Height - 1
 
-	// Row 1: header (always visible)
+	// Header row
 	headerY := bounds.Y + 1
-	if len(cv.records) > 0 {
-		cv.renderRow(screen, bounds, headerY, cv.records[0], colOffsets, headerStyle, false)
-		// Separator under header
-		for x := bounds.X; x < bounds.X+bounds.Width; x++ {
-			screen.SetContent(x, headerY+1, '─', nil, sepStyle)
-		}
+	cv.renderRow(screen, bounds, headerY, cv.records[0], colOffsets, headerStyle, -1)
+	for x := bounds.X; x < bounds.X+bounds.Width; x++ {
+		screen.SetContent(x, headerY+1, '─', nil, sepStyle)
 	}
 
-	// Data rows (starting at row 2 on screen)
-	dataStartY := bounds.Y + 3 // title + header + separator
+	// Data rows
+	dataStartY := bounds.Y + 3
 	visibleRows := contentH - 3
 	if visibleRows < 1 {
 		return
 	}
 
 	for i := 0; i < visibleRows; i++ {
-		recIdx := cv.scrollY + i + 1 // +1 to skip header record
+		recIdx := cv.scrollY + i + 1
 		if recIdx >= len(cv.records) {
 			break
 		}
 		y := dataStartY + i
-		isCursor := (cv.scrollY+i) == cv.cursorRow
+		isCursor := (cv.scrollY + i) == cv.cursorRow
 		rowStyle := baseStyle
 		if isCursor {
-			rowStyle = cursorStyle
+			rowStyle = cursorRowStyle
 		} else if i%2 == 1 {
 			rowStyle = altStyle
 		}
-		cv.renderRow(screen, bounds, y, cv.records[recIdx], colOffsets, rowStyle, isCursor)
+		highlightCol := -1
+		if isCursor {
+			highlightCol = cv.cursorCol
+		}
+		cv.renderRow(screen, bounds, y, cv.records[recIdx], colOffsets, rowStyle, highlightCol)
+		// Draw cursor cell style on top for the active cell
+		if isCursor {
+			cv.renderCell(screen, bounds, y, cv.records[recIdx], colOffsets, cursorCellStyle, cv.cursorCol)
+		}
 	}
 
-	// Status: row/total
-	statusStr := " " + itoa(cv.cursorRow+1) + "/" + itoa(len(cv.records)-1) + " rows"
-	statusStyle := baseStyle.Foreground(cv.theme.ResolveColor("#808080"))
+	// Status bar: row/col position + hint
+	col := cv.cursorCol
+	colName := ""
+	if len(cv.records) > 0 && col < len(cv.records[0]) {
+		colName = " [" + cv.records[0][col] + "]"
+	}
+	statusStr := " R" + itoa(cv.cursorRow+1) + " C" + itoa(cv.cursorCol+1) + colName +
+		"  " + itoa(cv.cursorRow+1) + "/" + itoa(len(cv.records)-1) + " rows" +
+		"  Enter:edit  Tab:next col"
 	drawStr(screen, bounds.X, bounds.Y+bounds.Height-1, statusStr, statusStyle)
 }
 
-// buildColOffsets computes screen x offsets for each column, accounting for scrollX.
-func (cv *CSVView) buildColOffsets() []int {
-	offsets := make([]int, len(cv.colWidths))
-	x := 0
-	for i, w := range cv.colWidths {
-		offsets[i] = x - cv.scrollX*3 // scrollX shifts by ~3 cols at a time (rough)
-		x += w + 3                     // col width + " │ " separator
-	}
-	return offsets
-}
-
-func (cv *CSVView) renderRow(screen tcell.Screen, bounds types.Rect, y int, row []string, colOffsets []int, style tcell.Style, isCursor bool) {
-	// Fill row background
+func (cv *CSVView) renderRow(screen tcell.Screen, bounds types.Rect, y int, row []string, colOffsets []int, style tcell.Style, _ int) {
 	for x := bounds.X; x < bounds.X+bounds.Width; x++ {
 		screen.SetContent(x, y, ' ', nil, style)
 	}
-
 	sepStyle := style.Foreground(cv.theme.ResolveColor("#505050"))
-
 	for j, offset := range colOffsets {
+		if offset == -99999 {
+			continue
+		}
 		sx := bounds.X + 1 + offset
 		if sx >= bounds.X+bounds.Width {
 			break
 		}
-
-		// Draw separator before each column except first
 		if j > 0 {
 			sepX := sx - 2
 			if sepX >= bounds.X && sepX < bounds.X+bounds.Width {
 				screen.SetContent(sepX, y, '│', nil, sepStyle)
 			}
 		}
-
 		if sx < bounds.X {
 			continue
 		}
-
 		cell := ""
 		if j < len(row) {
 			cell = row[j]
 		}
 		maxW := cv.colWidths[j]
-		if j < len(cv.colWidths) {
-			maxW = cv.colWidths[j]
-		}
-
 		cx := sx
 		drawn := 0
 		for _, ch := range cell {
@@ -212,7 +265,6 @@ func (cv *CSVView) renderRow(screen tcell.Screen, bounds types.Rect, y int, row 
 			}
 			w := runewidth.RuneWidth(ch)
 			if drawn+w > maxW {
-				// Truncate with ellipsis
 				if cx < bounds.X+bounds.Width {
 					screen.SetContent(cx, y, '…', nil, style)
 				}
@@ -222,6 +274,47 @@ func (cv *CSVView) renderRow(screen tcell.Screen, bounds types.Rect, y int, row 
 			cx += w
 			drawn += w
 		}
+	}
+}
+
+// renderCell re-draws a single cell with a different style (used for cursor cell highlight).
+func (cv *CSVView) renderCell(screen tcell.Screen, bounds types.Rect, y int, row []string, colOffsets []int, style tcell.Style, col int) {
+	if col < 0 || col >= len(colOffsets) {
+		return
+	}
+	offset := colOffsets[col]
+	if offset == -99999 {
+		return
+	}
+	sx := bounds.X + 1 + offset
+	if sx < bounds.X || sx >= bounds.X+bounds.Width {
+		return
+	}
+	maxW := cv.colWidths[col]
+	// Clear cell area
+	for x := sx; x < sx+maxW && x < bounds.X+bounds.Width; x++ {
+		screen.SetContent(x, y, ' ', nil, style)
+	}
+	cell := ""
+	if col < len(row) {
+		cell = row[col]
+	}
+	cx := sx
+	drawn := 0
+	for _, ch := range cell {
+		if cx >= bounds.X+bounds.Width {
+			break
+		}
+		w := runewidth.RuneWidth(ch)
+		if drawn+w > maxW {
+			if cx < bounds.X+bounds.Width {
+				screen.SetContent(cx, y, '…', nil, style)
+			}
+			break
+		}
+		screen.SetContent(cx, y, ch, nil, style)
+		cx += w
+		drawn += w
 	}
 }
 
@@ -237,7 +330,7 @@ func (cv *CSVView) HandleEvent(ev tcell.Event) bool {
 
 func (cv *CSVView) handleKey(ev *tcell.EventKey) bool {
 	bounds := cv.Bounds()
-	contentH := bounds.Height - 4 // title + header + sep + status
+	contentH := bounds.Height - 4
 	if contentH < 1 {
 		contentH = 1
 	}
@@ -245,6 +338,7 @@ func (cv *CSVView) handleKey(ev *tcell.EventKey) bool {
 	if dataRows < 0 {
 		dataRows = 0
 	}
+	numCols := len(cv.colWidths)
 
 	switch ev.Key() {
 	case tcell.KeyUp:
@@ -264,12 +358,46 @@ func (cv *CSVView) handleKey(ev *tcell.EventKey) bool {
 		}
 		return true
 	case tcell.KeyLeft:
-		if cv.scrollX > 0 {
-			cv.scrollX--
+		if cv.cursorCol > 0 {
+			cv.cursorCol--
+			cv.ensureCursorColVisible()
 		}
 		return true
 	case tcell.KeyRight:
-		cv.scrollX++
+		if cv.cursorCol < numCols-1 {
+			cv.cursorCol++
+			cv.ensureCursorColVisible()
+		}
+		return true
+	case tcell.KeyTab:
+		// Tab: advance to next cell, wrap to next row
+		cv.cursorCol++
+		if cv.cursorCol >= numCols {
+			cv.cursorCol = 0
+			if cv.cursorRow < dataRows-1 {
+				cv.cursorRow++
+				if cv.cursorRow >= cv.scrollY+contentH {
+					cv.scrollY = cv.cursorRow - contentH + 1
+				}
+			}
+		}
+		cv.ensureCursorColVisible()
+		return true
+	case tcell.KeyBacktab: // Shift+Tab
+		cv.cursorCol--
+		if cv.cursorCol < 0 {
+			cv.cursorCol = numCols - 1
+			if cv.cursorRow > 0 {
+				cv.cursorRow--
+				if cv.cursorRow < cv.scrollY {
+					cv.scrollY = cv.cursorRow
+				}
+			}
+		}
+		cv.ensureCursorColVisible()
+		return true
+	case tcell.KeyEnter, tcell.KeyF2:
+		cv.triggerEdit()
 		return true
 	case tcell.KeyPgUp:
 		cv.cursorRow -= contentH
@@ -289,6 +417,7 @@ func (cv *CSVView) handleKey(ev *tcell.EventKey) bool {
 		return true
 	case tcell.KeyHome:
 		cv.cursorRow = 0
+		cv.cursorCol = 0
 		cv.scrollY = 0
 		cv.scrollX = 0
 		return true
@@ -308,8 +437,8 @@ func (cv *CSVView) handleKey(ev *tcell.EventKey) bool {
 
 func (cv *CSVView) handleMouse(ev *tcell.EventMouse) bool {
 	bounds := cv.Bounds()
-	_, my := ev.Position()
-	if my < bounds.Y || my >= bounds.Y+bounds.Height {
+	mx, my := ev.Position()
+	if mx < bounds.X || mx >= bounds.X+bounds.Width || my < bounds.Y || my >= bounds.Y+bounds.Height {
 		return false
 	}
 
@@ -344,10 +473,43 @@ func (cv *CSVView) handleMouse(ev *tcell.EventMouse) bool {
 			if cv.cursorRow >= dataRows {
 				cv.cursorRow = dataRows - 1
 			}
+			// Determine column from x position
+			colOffsets := cv.buildColOffsets()
+			relX := mx - bounds.X - 1
+			for j := len(colOffsets) - 1; j >= 0; j-- {
+				if colOffsets[j] != -99999 && relX >= colOffsets[j] {
+					cv.cursorCol = j
+					break
+				}
+			}
 		}
 		return true
 	}
 	return false
+}
+
+// triggerEdit calls the onEdit callback for the current cell.
+func (cv *CSVView) triggerEdit() {
+	if cv.onEdit == nil {
+		return
+	}
+	recIdx := cv.cursorRow + 1
+	if recIdx >= len(cv.records) {
+		return
+	}
+	col := cv.cursorCol
+	current := ""
+	if col < len(cv.records[recIdx]) {
+		current = cv.records[recIdx][col]
+	}
+	setValue := func(newVal string) {
+		for len(cv.records[recIdx]) <= col {
+			cv.records[recIdx] = append(cv.records[recIdx], "")
+		}
+		cv.records[recIdx][col] = newVal
+		cv.computeColWidths()
+	}
+	cv.onEdit(cv.cursorRow, col, current, setValue)
 }
 
 // helper: draw a string
@@ -359,13 +521,10 @@ func drawStr(screen tcell.Screen, x, y int, s string, style tcell.Style) {
 }
 
 func itoa(n int) string {
-	if n < 0 {
+	if n <= 0 {
 		return "0"
 	}
 	buf := make([]byte, 0, 10)
-	if n == 0 {
-		return "0"
-	}
 	for n > 0 {
 		buf = append([]byte{byte('0' + n%10)}, buf...)
 		n /= 10

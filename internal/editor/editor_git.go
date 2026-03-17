@@ -817,6 +817,113 @@ func (e *Editor) graphGitStashDrop() {
 	e.showStashPicker("drop")
 }
 
+// graphGitRemoteMenu is the unified remote menu (p key): push / pull / fetch.
+func (e *Editor) graphGitRemoteMenu() {
+	if e.diffTracker == nil {
+		return
+	}
+	actions := []string{"Push", "Pull", "Fetch"}
+	e.listPicker.Show("Remote", actions)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(action string) {
+		switch action {
+		case "Push":
+			e.graphGitPush()
+		case "Pull":
+			e.graphGitPull()
+		case "Fetch":
+			e.graphGitFetch()
+		}
+	})
+}
+
+// graphGitIntegrateMenu is the unified integrate menu (m key): merge / rebase.
+func (e *Editor) graphGitIntegrateMenu() {
+	if e.diffTracker == nil {
+		return
+	}
+	actions := []string{"Merge", "Rebase"}
+	e.listPicker.Show("Integrate", actions)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(action string) {
+		switch action {
+		case "Merge":
+			e.graphGitMerge()
+		case "Rebase":
+			e.graphGitRebase()
+		}
+	})
+}
+
+// graphGitInteractiveRebase opens the interactive rebase view for the selected commit.
+func (e *Editor) graphGitInteractiveRebase() {
+	if e.diffTracker == nil || e.graphView == nil {
+		return
+	}
+	commit := e.graphView.SelectedCommit()
+	if commit == nil || commit.Hash == "uncommitted" {
+		e.statusBar.SetMessage("Select a commit to start interactive rebase from")
+		return
+	}
+
+	// Collect commits from HEAD down to (and including) the selected commit
+	var commits []*git.Commit
+	found := false
+	for i := range e.graphCommits {
+		c := &e.graphCommits[i]
+		if c.Hash == "uncommitted" {
+			continue
+		}
+		commits = append(commits, c)
+		if c.Hash == commit.Hash {
+			found = true
+			break
+		}
+	}
+	if !found || len(commits) == 0 {
+		e.statusBar.SetMessage("Could not determine rebase range")
+		return
+	}
+
+	rebaseView := view.NewRebaseView(e.theme, commits)
+	rebaseView.SetOnCancel(func() {
+		e.rebaseView = nil
+		e.statusBar.SetMessage("Interactive rebase cancelled")
+	})
+	rebaseView.SetOnExecute(func(entries []view.RebaseViewEntry) {
+		e.rebaseView = nil
+		// Build git RebaseEntry list (oldest first, matching the view order)
+		var plan []git.RebaseEntry
+		for _, en := range entries {
+			plan = append(plan, git.RebaseEntry{
+				Action:  string(en.Action),
+				Hash:    en.Commit.Hash,
+				Message: en.Commit.Message,
+			})
+		}
+		// Upstream = parent of the oldest commit (entries[0])
+		upstream := plan[0].Hash + "^"
+		e.statusBar.SetMessage("Running interactive rebase...")
+		go func() {
+			out, err := e.diffTracker.InteractiveRebase(upstream, plan)
+			if err != nil {
+				e.statusBar.SetMessage("Rebase failed: " + err.Error())
+			} else {
+				msg := "Interactive rebase complete"
+				if out != "" {
+					msg = "Rebase: " + out
+				}
+				e.statusBar.SetMessage(msg)
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
+	e.rebaseView = rebaseView
+}
+
 // graphGitBranchMenu is the unified branch menu (b key).
 // Actions: Create / Checkout / Set Upstream / Delete
 func (e *Editor) graphGitBranchMenu() {

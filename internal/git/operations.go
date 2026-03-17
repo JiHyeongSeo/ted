@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -378,6 +379,53 @@ func (d *DiffTracker) ListRemoteBranches() ([]string, error) {
 		}
 	}
 	return branches, nil
+}
+
+// RebaseEntry describes a single entry in an interactive rebase plan.
+type RebaseEntry struct {
+	Action  string // pick, squash, fixup, drop, reword
+	Hash    string
+	Message string
+}
+
+// InteractiveRebase executes a non-interactive rebase using the given plan.
+// upstream is the commit *before* the oldest commit in the plan (e.g. "abc123^").
+// entries should be ordered oldest-first (same as git rebase -i output).
+func (d *DiffTracker) InteractiveRebase(upstream string, entries []RebaseEntry) (string, error) {
+	// Build todo list
+	var planLines []string
+	for _, e := range entries {
+		planLines = append(planLines, e.Action+" "+e.Hash+" "+e.Message)
+	}
+	plan := strings.Join(planLines, "\n") + "\n"
+
+	// Write plan to a temp file
+	planFile, err := os.CreateTemp("", "ted-rebase-plan-*.txt")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(planFile.Name())
+	planFile.WriteString(plan)
+	planFile.Close()
+
+	// Write a tiny shell script that replaces the sequence editor file with our plan
+	scriptFile, err := os.CreateTemp("", "ted-rebase-ed-*.sh")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(scriptFile.Name())
+	scriptContent := "#!/bin/sh\ncp '" + planFile.Name() + "' \"$1\"\n"
+	scriptFile.WriteString(scriptContent)
+	scriptFile.Close()
+	os.Chmod(scriptFile.Name(), 0755)
+
+	cmd := exec.Command("git", "-C", d.repoRoot, "rebase", "-i", upstream)
+	cmd.Env = append(os.Environ(), "GIT_SEQUENCE_EDITOR="+scriptFile.Name())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git rebase -i: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // RepoRoot returns the repository root path.

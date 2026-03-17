@@ -74,6 +74,7 @@ type Editor struct {
 	graphCommits     []git.Commit   // all loaded commits (for lazy loading)
 	graphAllLoaded   bool           // true when no more commits to fetch
 	csvView            *view.CSVView          // active CSV table view
+	rebaseView         *view.RebaseView       // interactive rebase overlay (nil when not active)
 	graphFileUpdates   chan graphFileUpdate
 	lspNavResult       chan lsp.Location // definition/reference navigation result
 	listPicker         *view.ListPicker
@@ -360,8 +361,10 @@ func (e *Editor) OpenFile(path string) error {
 		idx := e.tabs.Open(buf, "csv")
 		tab := e.tabs.Tab(idx)
 		tab.Kind = TabKindCSV
-		tab.CSVView = view.NewCSVView(e.theme, string(content), filepath.Base(path))
-		e.csvView = tab.CSVView
+		cv := view.NewCSVView(e.theme, string(content), filepath.Base(path))
+		e.wireCSVEdit(cv, tab)
+		tab.CSVView = cv
+		e.csvView = cv
 		e.editorView = nil
 		e.recentFiles.Add(path)
 		return nil
@@ -739,6 +742,13 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 
+	// Interactive rebase overlay — takes priority over graph events
+	if e.rebaseView != nil {
+		if e.rebaseView.HandleEvent(ev) {
+			return
+		}
+	}
+
 	// Graph tab event handling (state machine: graph → files → diff)
 	tab = e.tabs.Active()
 	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
@@ -794,20 +804,14 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				case 'a':
 					e.graphGitStageAll()
 					return
-				case 'f':
-					e.graphGitFetch()
-					return
 				case 'p':
-					e.graphGitPush()
-					return
-				case 'P':
-					e.graphGitPull()
+					e.graphGitRemoteMenu() // push / pull / fetch
 					return
 				case 'm':
-					e.graphGitMerge()
+					e.graphGitIntegrateMenu() // merge / rebase
 					return
-				case 'r':
-					e.graphGitRebase()
+				case 'i':
+					e.graphGitInteractiveRebase()
 					return
 				case 'b':
 					e.graphGitBranchMenu()
@@ -1058,7 +1062,7 @@ func (e *Editor) render() {
 				// Set context-sensitive key hints on status bar
 				switch e.graphFocus {
 				case 0:
-					e.statusBar.SetRightHint("c:commit  a:stage-all  p:push  P:pull  f:fetch  m:merge  r:rebase  b:branch  t:tag  s:stash")
+					e.statusBar.SetRightHint("c:commit  a:stage  p:remote  m:integrate  i:rebase  b:branch  t:tag  s:stash")
 				case 1:
 					e.statusBar.SetRightHint("Space:stage  u:unstage  Enter:diff  Esc:back")
 				case 2:
@@ -1176,6 +1180,19 @@ func (e *Editor) render() {
 	if e.palette.IsVisible() {
 		e.palette.SetBoundsFromScreen(w, h)
 		e.palette.Render(e.screen)
+	}
+
+	// Interactive rebase overlay — rendered on top of everything
+	if e.rebaseView != nil {
+		if r, ok := regions["editor"]; ok {
+			// Use center 70% of the editor area
+			ow := r.Width * 7 / 8
+			oh := r.Height * 7 / 8
+			ox := r.X + (r.Width-ow)/2
+			oy := r.Y + (r.Height-oh)/2
+			e.rebaseView.SetBounds(types.Rect{X: ox, Y: oy, Width: ow, Height: oh})
+			e.rebaseView.Render(e.screen)
+		}
 	}
 
 	e.screen.Show()
@@ -2034,6 +2051,28 @@ func (e *Editor) forceCloseTab(tab *TabInfo) {
 		e.OpenEmpty()
 	}
 	e.syncViewToTab()
+}
+
+// wireCSVEdit connects a CSVView's edit callback to the editor's inputBar and buffer.
+func (e *Editor) wireCSVEdit(cv *view.CSVView, tab *TabInfo) {
+	cv.SetOnEdit(func(row, col int, current string, setValue func(string)) {
+		e.inputBar.Show(fmt.Sprintf("R%d C%d: ", row+1, col+1))
+		e.inputBar.SetValue(current)
+		e.inputBar.SetOnSubmit(func(newVal string) {
+			e.inputBar.Hide()
+			setValue(newVal)
+			// Sync updated records back to the buffer so Ctrl+S saves correctly
+			newContent := cv.Serialize()
+			oldLen := len(tab.Buffer.Text())
+			if oldLen > 0 {
+				tab.Buffer.Delete(0, 0, oldLen)
+			}
+			tab.Buffer.Insert(0, 0, newContent)
+		})
+		e.inputBar.SetOnCancel(func() {
+			e.inputBar.Hide()
+		})
+	})
 }
 
 func (e *Editor) closeCurrentTab() {
