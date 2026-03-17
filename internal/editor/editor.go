@@ -680,6 +680,9 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				case 'c':
 					e.graphGitCommit()
 					return
+				case 'a':
+					e.graphGitStageAll()
+					return
 				case 'f':
 					e.graphGitFetch()
 					return
@@ -689,41 +692,20 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				case 'P':
 					e.graphGitPull()
 					return
-				case 't':
-					e.graphGitTag()
-					return
 				case 'm':
 					e.graphGitMerge()
 					return
 				case 'r':
 					e.graphGitRebase()
 					return
-				case 's':
-					e.graphGitStash()
-					return
-				case 'S':
-					e.graphGitStashPop()
-					return
-				case 'X':
-					e.graphGitStashDrop()
-					return
-				case 'T':
-					e.graphGitPushTags()
-					return
 				case 'b':
-					e.graphGitCreateBranch()
+					e.graphGitBranchMenu()
 					return
-				case 'o':
-					e.graphGitCheckout()
+				case 't':
+					e.graphGitTagMenu()
 					return
-				case 'U':
-					e.graphGitSetUpstream()
-					return
-				case 'd':
-					e.graphGitDelete()
-					return
-				case 'a':
-					e.graphGitStageAll()
+				case 's':
+					e.graphGitStashMenu()
 					return
 				}
 			}
@@ -955,7 +937,7 @@ func (e *Editor) render() {
 				// Set context-sensitive key hints on status bar
 				switch e.graphFocus {
 				case 0:
-					e.statusBar.SetRightHint("c:commit  a:stage-all  p:push  T:push-tags  P:pull  o:checkout  b:branch  t:tag  d:delete  m:merge  r:rebase  s:stash  S:pop  X:drop-stash  U:upstream")
+					e.statusBar.SetRightHint("c:commit  a:stage-all  p:push  P:pull  f:fetch  m:merge  r:rebase  b:branch  t:tag  s:stash")
 				case 1:
 					e.statusBar.SetRightHint("Space:stage  u:unstage  Enter:diff  Esc:back")
 				case 2:

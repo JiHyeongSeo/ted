@@ -753,6 +753,71 @@ func (e *Editor) graphGitStashDrop() {
 	e.showStashPicker("drop")
 }
 
+// graphGitBranchMenu is the unified branch menu (b key).
+// Actions: Create / Checkout / Set Upstream / Delete
+func (e *Editor) graphGitBranchMenu() {
+	if e.diffTracker == nil {
+		return
+	}
+	actions := []string{"Create branch", "Checkout", "Set upstream", "Delete branch"}
+	e.listPicker.Show("Branch", actions)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(action string) {
+		switch action {
+		case "Create branch":
+			e.graphGitCreateBranch()
+		case "Checkout":
+			e.graphGitCheckout()
+		case "Set upstream":
+			e.graphGitSetUpstream()
+		case "Delete branch":
+			e.graphGitDeleteBranch()
+		}
+	})
+}
+
+// graphGitTagMenu is the unified tag menu (t key).
+// Actions: Create tag / Push tag / Delete tag
+func (e *Editor) graphGitTagMenu() {
+	if e.diffTracker == nil {
+		return
+	}
+	actions := []string{"Create tag", "Push tag", "Delete tag"}
+	e.listPicker.Show("Tag", actions)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(action string) {
+		switch action {
+		case "Create tag":
+			e.graphGitTag()
+		case "Push tag":
+			e.graphGitPushTags()
+		case "Delete tag":
+			e.graphGitDeleteTag()
+		}
+	})
+}
+
+// graphGitStashMenu is the unified stash menu (s key).
+// Actions: Stash / Pop / Drop
+func (e *Editor) graphGitStashMenu() {
+	if e.diffTracker == nil {
+		return
+	}
+	actions := []string{"Stash changes", "Pop stash", "Drop stash"}
+	e.listPicker.Show("Stash", actions)
+	e.listPicker.SetOnCancel(func() {})
+	e.listPicker.SetOnSelect(func(action string) {
+		switch action {
+		case "Stash changes":
+			e.graphGitStash()
+		case "Pop stash":
+			e.graphGitStashPop()
+		case "Drop stash":
+			e.graphGitStashDrop()
+		}
+	})
+}
+
 // showStashPicker shows a stash list picker, then performs action ("pop" or "drop").
 func (e *Editor) showStashPicker(action string) {
 	if e.diffTracker == nil {
