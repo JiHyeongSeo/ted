@@ -492,18 +492,19 @@ func detectLangFromPath(path string) string {
 }
 
 // computeSideBySide builds side-by-side diff lines using a simple LCS-based diff.
+// Consecutive remove+add blocks are paired as DiffModified so they appear on the
+// same row (aligned), instead of being shown on separate rows.
 func computeSideBySide(oldText, newText string) []DiffLine {
 	oldLines := splitLines(oldText)
 	newLines := splitLines(newText)
 
-	// Simple diff using LCS (Longest Common Subsequence)
 	ops := diffOps(oldLines, newLines)
 
 	var result []DiffLine
 	oi, ni := 0, 0
-	for _, op := range ops {
-		switch op {
-		case opEqual:
+	i := 0
+	for i < len(ops) {
+		if ops[i] == opEqual {
 			result = append(result, DiffLine{
 				LeftNum:   oi + 1,
 				LeftText:  oldLines[oi],
@@ -513,20 +514,52 @@ func computeSideBySide(oldText, newText string) []DiffLine {
 			})
 			oi++
 			ni++
-		case opRemove:
+			i++
+			continue
+		}
+
+		// Collect a contiguous block of removes and adds (in any order).
+		var removeIdxs, addIdxs []int
+		for i < len(ops) && (ops[i] == opRemove || ops[i] == opAdd) {
+			if ops[i] == opRemove {
+				removeIdxs = append(removeIdxs, oi)
+				oi++
+			} else {
+				addIdxs = append(addIdxs, ni)
+				ni++
+			}
+			i++
+		}
+
+		// Pair removes with adds as DiffModified for visual alignment.
+		pairCount := len(removeIdxs)
+		if len(addIdxs) < pairCount {
+			pairCount = len(addIdxs)
+		}
+		for k := 0; k < pairCount; k++ {
 			result = append(result, DiffLine{
-				LeftNum:  oi + 1,
-				LeftText: oldLines[oi],
+				LeftNum:   removeIdxs[k] + 1,
+				LeftText:  oldLines[removeIdxs[k]],
+				RightNum:  addIdxs[k] + 1,
+				RightText: newLines[addIdxs[k]],
+				Kind:      DiffModified,
+			})
+		}
+		// Extra removes (more deleted than added)
+		for k := pairCount; k < len(removeIdxs); k++ {
+			result = append(result, DiffLine{
+				LeftNum:  removeIdxs[k] + 1,
+				LeftText: oldLines[removeIdxs[k]],
 				Kind:     DiffRemoved,
 			})
-			oi++
-		case opAdd:
+		}
+		// Extra adds (more added than deleted)
+		for k := pairCount; k < len(addIdxs); k++ {
 			result = append(result, DiffLine{
-				RightNum:  ni + 1,
-				RightText: newLines[ni],
+				RightNum:  addIdxs[k] + 1,
+				RightText: newLines[addIdxs[k]],
 				Kind:      DiffAdded,
 			})
-			ni++
 		}
 	}
 	return result

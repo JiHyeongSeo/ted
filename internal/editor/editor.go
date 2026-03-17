@@ -19,6 +19,7 @@ import (
 	"github.com/JiHyeongSeo/ted/internal/input"
 	"github.com/JiHyeongSeo/ted/internal/lsp"
 	"github.com/JiHyeongSeo/ted/internal/search"
+	"github.com/JiHyeongSeo/ted/internal/session"
 	"github.com/JiHyeongSeo/ted/internal/syntax"
 	"github.com/JiHyeongSeo/ted/internal/types"
 	"github.com/JiHyeongSeo/ted/internal/view"
@@ -72,11 +73,13 @@ type Editor struct {
 	graphFocus       int            // 0=graph, 1=files, 2=diff
 	graphCommits     []git.Commit   // all loaded commits (for lazy loading)
 	graphAllLoaded   bool           // true when no more commits to fetch
+	csvView            *view.CSVView          // active CSV table view
 	graphFileUpdates   chan graphFileUpdate
 	lspNavResult       chan lsp.Location // definition/reference navigation result
 	listPicker         *view.ListPicker
-	pasteActive           bool
-	mouseDown             bool // tracking mouse button1 press for drag selection
+	pasteActive        bool
+	mouseDown          bool   // tracking mouse button1 press for drag selection
+	configDir          string // user config directory (for session, keybindings, etc.)
 }
 
 // New creates a new Editor instance.
@@ -98,6 +101,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 		layout:     view.NewLayout(),
 		lspManager: lsp.NewServerManager(lspConfigs),
 		lspHandler: lspHandler,
+		configDir:  config.DefaultUserConfigDir(),
 	}
 
 	e.splitManager = NewSplitManager()
@@ -345,6 +349,24 @@ func (e *Editor) OpenFile(path string) error {
 		return nil
 	}
 
+	// CSV files get a table view instead of a text editor
+	if strings.ToLower(filepath.Ext(path)) == ".csv" {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		buf := buffer.NewBuffer(string(content))
+		buf.SetPath(path)
+		idx := e.tabs.Open(buf, "csv")
+		tab := e.tabs.Tab(idx)
+		tab.Kind = TabKindCSV
+		tab.CSVView = view.NewCSVView(e.theme, string(content), filepath.Base(path))
+		e.csvView = tab.CSVView
+		e.editorView = nil
+		e.recentFiles.Add(path)
+		return nil
+	}
+
 	buf, err := buffer.OpenFile(path)
 	if err != nil {
 		return err
@@ -408,7 +430,12 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	// Enable bracketed paste so pasted text arrives as a single block
 	screen.EnablePaste()
 
-	// Only open empty buffer if no directory was opened via sidebar
+	// Restore previous session if no files/directory were given on the command line
+	if e.tabs.Count() == 0 {
+		e.restoreSession()
+	}
+
+	// Only open empty buffer if nothing was restored or provided
 	if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
 		e.OpenEmpty()
 	}
@@ -533,7 +560,72 @@ func (e *Editor) Run(screen tcell.Screen) error {
 
 // Stop signals the editor to exit.
 func (e *Editor) Stop() {
+	e.saveSession()
 	e.running = false
+}
+
+// saveSession persists currently open file paths to disk.
+func (e *Editor) saveSession() {
+	var files []string
+	activeIdx := 0
+	for i, tab := range e.tabs.All() {
+		if tab.Kind != TabKindFile {
+			continue
+		}
+		p := tab.Buffer.Path()
+		if p == "" {
+			continue // skip untitled
+		}
+		if tab == e.tabs.Active() {
+			activeIdx = len(files)
+		}
+		_ = i
+		files = append(files, p)
+	}
+	dir := e.projectRoot
+	sess := &session.Session{
+		Files:       files,
+		ActiveIndex: activeIdx,
+		Directory:   dir,
+	}
+	_ = session.Save(e.configDir, sess)
+}
+
+// restoreSession reopens files from the last session.
+func (e *Editor) restoreSession() {
+	sess, err := session.Load(e.configDir)
+	if err != nil || len(sess.Files) == 0 {
+		return
+	}
+	// Restore sidebar directory if not already set
+	if sess.Directory != "" && e.projectRoot == "" {
+		e.OpenDirectory(sess.Directory)
+	}
+	opened := 0
+	for _, path := range sess.Files {
+		if _, err := os.Stat(path); err != nil {
+			continue // skip files that no longer exist
+		}
+		if err := e.OpenFile(path); err == nil {
+			opened++
+		}
+	}
+	if opened == 0 {
+		return
+	}
+	// Restore active tab
+	all := e.tabs.All()
+	fileIdx := 0
+	for i, tab := range all {
+		if tab.Kind != TabKindFile || tab.Buffer.Path() == "" {
+			continue
+		}
+		if fileIdx == sess.ActiveIndex {
+			e.tabs.SetActive(i)
+			break
+		}
+		fileIdx++
+	}
 }
 
 func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
@@ -635,8 +727,20 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 		}
 	}
 
-	// Graph tab event handling (state machine: graph → files → diff)
+	// CSV tab event handling
 	tab := e.tabs.Active()
+	if tab != nil && tab.Kind == TabKindCSV && e.csvView != nil {
+		if ev.Key() == tcell.KeyEscape {
+			e.closeCurrentTab()
+			return
+		}
+		if e.csvView.HandleEvent(ev) {
+			return
+		}
+	}
+
+	// Graph tab event handling (state machine: graph → files → diff)
+	tab = e.tabs.Active()
 	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
 		switch e.graphFocus {
 		case 2: // diff view
@@ -812,8 +916,16 @@ func (e *Editor) handleMouseEvent(ev *tcell.EventMouse) {
 		}
 	}
 
-	// Graph view mouse events
+	// CSV view mouse events
 	tab := e.tabs.Active()
+	if tab != nil && tab.Kind == TabKindCSV && e.csvView != nil {
+		if e.csvView.HandleEvent(ev) {
+			return
+		}
+	}
+
+	// Graph view mouse events
+	tab = e.tabs.Active()
 	if tab != nil && tab.Kind == TabKindGraph && e.graphView != nil {
 		if e.graphFocus == 2 && e.graphDiffView != nil {
 			if e.graphDiffView.HandleEvent(ev) {
@@ -881,6 +993,8 @@ func (e *Editor) render() {
 			title := ""
 			if t.Kind == TabKindGraph {
 				title = "⎇ Git Graph"
+			} else if t.Kind == TabKindCSV {
+				title = filepath.Base(t.Buffer.Path())
 			} else if t.Buffer.Path() != "" {
 				title = filepath.Base(t.Buffer.Path())
 				if t.Deleted {
@@ -970,6 +1084,10 @@ func (e *Editor) render() {
 					e.commitDetailView.SetFocused(e.graphFocus == 1)
 					e.commitDetailView.Render(e.screen)
 				}
+			} else if tab != nil && tab.Kind == TabKindCSV && e.csvView != nil {
+				e.statusBar.SetRightHint("↑↓:row  ←→:scroll  PgUp/Dn  Home/End")
+				e.csvView.SetBounds(r)
+				e.csvView.Render(e.screen)
 			} else {
 				e.statusBar.SetRightHint("")
 				if e.editorView != nil {
@@ -1072,6 +1190,11 @@ func (e *Editor) syncViewToTab() {
 
 	if tab.Kind == TabKindGraph {
 		e.editorView = nil
+		return
+	}
+	if tab.Kind == TabKindCSV {
+		e.editorView = nil
+		e.csvView = tab.CSVView
 		return
 	}
 
@@ -1924,6 +2047,17 @@ func (e *Editor) closeCurrentTab() {
 		e.commitDetailView = nil
 		e.graphDiffView = nil
 		e.graphFocus = 0
+		idx := e.tabs.ActiveIndex()
+		e.tabs.Close(idx)
+		if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {
+			e.OpenEmpty()
+		}
+		e.syncViewToTab()
+		return
+	}
+
+	if tab.Kind == TabKindCSV {
+		e.csvView = nil
 		idx := e.tabs.ActiveIndex()
 		e.tabs.Close(idx)
 		if e.tabs.Count() == 0 && !e.layout.SidebarVisible() {

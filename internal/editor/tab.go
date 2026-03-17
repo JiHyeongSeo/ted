@@ -3,6 +3,7 @@ package editor
 import (
 	"github.com/JiHyeongSeo/ted/internal/buffer"
 	"github.com/JiHyeongSeo/ted/internal/types"
+	"github.com/JiHyeongSeo/ted/internal/view"
 )
 
 // TabKind identifies the type of a tab.
@@ -11,6 +12,7 @@ type TabKind int
 const (
 	TabKindFile  TabKind = iota // file editing tab
 	TabKindGraph                // git graph tab
+	TabKindCSV                  // CSV table view tab
 )
 
 // TabInfo holds the state of a single editor tab.
@@ -21,7 +23,8 @@ type TabInfo struct {
 	ScrollY  int
 	ScrollX  int
 	Language string
-	Deleted  bool // true when the file was deleted from disk while open
+	Deleted  bool         // true when the file was deleted from disk while open
+	CSVView  *view.CSVView // non-nil for TabKindCSV tabs
 }
 
 // TabManager manages open file tabs.
