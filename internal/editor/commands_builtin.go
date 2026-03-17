@@ -227,6 +227,20 @@ func RegisterBuiltinCommands(reg *CommandRegistry) {
 			return ctx.ExecuteCommand("git.graph")
 		},
 	})
+	reg.Register(&Command{
+		Name:        "git.checkout",
+		Description: "Checkout a branch or tag",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.checkout")
+		},
+	})
+	reg.Register(&Command{
+		Name:        "git.setUpstream",
+		Description: "Set upstream tracking branch for current branch",
+		Execute: func(ctx EditorContext) error {
+			return ctx.ExecuteCommand("git.setUpstream")
+		},
+	})
 
 	// Python commands
 	reg.Register(&Command{

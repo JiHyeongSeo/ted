@@ -965,3 +965,116 @@ func (e *Editor) gitOpenGraphAtCommit(shortHash string) {
 		e.graphView.SelectByShortHash(shortHash)
 	}
 }
+
+// graphGitCheckout shows a combined branch+tag picker and checks out the selected ref.
+func (e *Editor) graphGitCheckout() {
+	if e.diffTracker == nil {
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+
+	branches, err := e.diffTracker.ListBranches()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	tags, err := e.diffTracker.ListTags()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+
+	var items []string
+	for _, b := range branches {
+		if b == current {
+			items = append(items, "branch  * "+b)
+		} else {
+			items = append(items, "branch    "+b)
+		}
+	}
+	for _, t := range tags {
+		items = append(items, "tag       "+t)
+	}
+
+	if len(items) == 0 {
+		e.statusBar.SetMessage("No branches or tags found")
+		return
+	}
+
+	e.listPicker.Show("Checkout branch/tag", items)
+	e.listPicker.SetOnSelect(func(selected string) {
+		e.listPicker.Hide()
+		if selected == "" {
+			return
+		}
+		// Strip prefix ("branch  * ", "branch    ", "tag       ")
+		ref := selected
+		for _, pfx := range []string{"branch  * ", "branch    ", "tag       "} {
+			if strings.HasPrefix(selected, pfx) {
+				ref = strings.TrimPrefix(selected, pfx)
+				break
+			}
+		}
+		if ref == current {
+			e.statusBar.SetMessage("Already on '" + ref + "'")
+			return
+		}
+		go func() {
+			_, err := e.diffTracker.Checkout(ref)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				e.statusBar.SetMessage("Switched to '" + ref + "'")
+				e.graphRefresh()
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
+}
+
+// graphGitSetUpstream shows a remote branch picker and sets the upstream for the current branch.
+func (e *Editor) graphGitSetUpstream() {
+	if e.diffTracker == nil {
+		return
+	}
+	current := e.diffTracker.CurrentBranch()
+	if current == "" {
+		e.statusBar.SetMessage("Not on a branch (detached HEAD)")
+		return
+	}
+
+	remotes, err := e.diffTracker.ListRemoteBranches()
+	if err != nil {
+		e.statusBar.SetMessage(err.Error())
+		return
+	}
+	if len(remotes) == 0 {
+		e.statusBar.SetMessage("No remote branches found")
+		return
+	}
+
+	// Pre-select the most likely match (origin/<current>)
+	items := make([]string, len(remotes))
+	copy(items, remotes)
+
+	e.listPicker.Show(fmt.Sprintf("Set upstream for '%s'", current), items)
+	e.listPicker.SetOnSelect(func(selected string) {
+		e.listPicker.Hide()
+		if selected == "" {
+			return
+		}
+		go func() {
+			_, err := e.diffTracker.SetUpstream(current, selected)
+			if err != nil {
+				e.statusBar.SetMessage(err.Error())
+			} else {
+				e.statusBar.SetMessage(fmt.Sprintf("'%s' tracks '%s'", current, selected))
+			}
+			if e.screen != nil {
+				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+			}
+		}()
+	})
+}

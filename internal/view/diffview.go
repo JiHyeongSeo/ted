@@ -36,6 +36,8 @@ type DiffView struct {
 	highlighter *syntax.Highlighter
 	lines       []DiffLine
 	scrollY     int
+	scrollX     int // horizontal scroll offset (in columns)
+	cursorY     int // absolute line index of cursor (-1 = none)
 	title       string // e.g. filename
 	// Selection state for copy
 	selStart    int // line index of selection start (-1 = none)
@@ -49,8 +51,9 @@ type DiffView struct {
 // filePath is used to detect the language for syntax highlighting.
 func NewDiffView(theme *syntax.Theme, oldText, newText, title, filePath string) *DiffView {
 	dv := &DiffView{
-		theme: theme,
-		title: title,
+		theme:   theme,
+		title:   title,
+		cursorY: 0,
 	}
 	dv.lines = computeSideBySide(oldText, newText)
 
@@ -112,6 +115,7 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 	headerStyle := bgStyle.Foreground(dv.theme.ResolveColor("#c8c8c8")).Bold(true)
 	sepStyle := bgStyle.Foreground(dv.theme.ResolveColor("#505050"))
 	lineNumStyle := dv.theme.UIStyle("linenumber")
+	cursorStyle := bgStyle.Background(dv.theme.ResolveColor("#264f78")) // VS Code blue cursor line
 
 	// Diff background colors using 256-color palette for broad terminal support
 	// Color 22 = dark green, Color 52 = dark red
@@ -125,8 +129,12 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 		}
 	}
 
-	// Header row
-	header := fmt.Sprintf(" Diff: %s ", dv.title)
+	// Header row — show scrollX offset if non-zero
+	scrollHint := ""
+	if dv.scrollX > 0 {
+		scrollHint = fmt.Sprintf("  [←→ col:%d]", dv.scrollX)
+	}
+	header := fmt.Sprintf(" Diff: %s%s ", dv.title, scrollHint)
 	hx := bounds.X
 	for _, ch := range header {
 		if hx >= bounds.X+bounds.Width {
@@ -192,15 +200,24 @@ func (dv *DiffView) Render(screen tcell.Screen) {
 			isSelected = idx >= sStart && idx <= sEnd
 		}
 
-		// Draw both sides with syntax highlighting + diff background
-		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle, leftHasDiff, leftBg, isSelected && dv.selSide == 1)
-		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle, rightHasDiff, rightBg, isSelected && dv.selSide == 2)
+		// Cursor line overrides background when not already diff-colored
+		isCursor := idx == dv.cursorY
+
+		// Draw both sides
+		dv.drawSide(screen, leftX, y, lineNumW, textW, dl.LeftNum, dl.LeftText, bgStyle, lineNumStyle,
+			leftHasDiff, leftBg, isSelected && dv.selSide == 1, isCursor && !leftHasDiff, cursorStyle, dv.scrollX)
+		dv.drawSide(screen, rightX, y, lineNumW, textW, dl.RightNum, dl.RightText, bgStyle, lineNumStyle,
+			rightHasDiff, rightBg, isSelected && dv.selSide == 2, isCursor && !rightHasDiff, cursorStyle, dv.scrollX)
 	}
 }
 
-func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string, baseStyle, numStyle tcell.Style, hasDiff bool, diffBg tcell.Color, isSelected bool) {
-	// Determine the row background
+func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, lineNum int, text string,
+	baseStyle, numStyle tcell.Style, hasDiff bool, diffBg tcell.Color, isSelected bool, isCursor bool, cursorStyle tcell.Style, scrollX int) {
+	// Determine the row background priority: selection > cursor > diff > base
 	rowStyle := baseStyle
+	if isCursor {
+		rowStyle = cursorStyle
+	}
 	if hasDiff {
 		rowStyle = baseStyle.Background(diffBg)
 	}
@@ -213,10 +230,13 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		screen.SetContent(x, y, ' ', nil, rowStyle)
 	}
 
-	// Line number
+	// Line number (always unaffected by scrollX)
 	if lineNum > 0 {
 		numStr := fmt.Sprintf("%*d ", lineNumW-1, lineNum)
 		ns := numStyle
+		if isCursor {
+			ns = numStyle.Background(dv.cursorBg(cursorStyle))
+		}
 		if hasDiff {
 			ns = numStyle.Background(diffBg)
 		}
@@ -234,24 +254,25 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		}
 	}
 
-	// Get syntax tokens for all lines (always highlight)
+	// Get syntax tokens
 	var tokens []syntax.Token
 	if dv.highlighter != nil && text != "" {
 		tokens = dv.highlighter.HighlightLine(text)
 	}
 
-	// Text content
+	// Build rune list with widths, applying scrollX offset
 	tx := startX + lineNumW
 	maxX := tx + textW
+	col := 0      // visual column (accounting for tab expansion)
 	runeIdx := 0
 	for _, ch := range text {
 		w := runewidth.RuneWidth(ch)
 		if ch == '\t' {
 			w = 4
-			for j := 0; j < w && tx < maxX; j++ {
-				screen.SetContent(tx, y, ' ', nil, rowStyle)
-				tx++
-			}
+		}
+		// Skip columns before scrollX
+		if col < scrollX {
+			col += w
 			runeIdx++
 			continue
 		}
@@ -260,7 +281,6 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 		}
 
 		style := rowStyle
-		// Apply syntax highlighting with diff background preserved
 		if len(tokens) > 0 {
 			for _, token := range tokens {
 				if runeIdx >= token.Start && runeIdx < token.Start+token.Length {
@@ -269,7 +289,7 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 					if hasDiff {
 						style = tcell.StyleDefault.Foreground(fg).Background(diffBg)
 					} else {
-						_, bg, _ := baseStyle.Decompose()
+						_, bg, _ := rowStyle.Decompose()
 						style = tcell.StyleDefault.Foreground(fg).Background(bg)
 					}
 					break
@@ -277,10 +297,24 @@ func (dv *DiffView) drawSide(screen tcell.Screen, startX, y, lineNumW, textW, li
 			}
 		}
 
-		screen.SetContent(tx, y, ch, nil, style)
-		tx += w
+		if ch == '\t' {
+			for j := 0; j < 4 && tx < maxX; j++ {
+				screen.SetContent(tx, y, ' ', nil, style)
+				tx++
+			}
+		} else {
+			screen.SetContent(tx, y, ch, nil, style)
+			tx += w
+		}
+		col += w
 		runeIdx++
 	}
+}
+
+// cursorBg extracts the background color from cursorStyle.
+func (dv *DiffView) cursorBg(cursorStyle tcell.Style) tcell.Color {
+	_, bg, _ := cursorStyle.Decompose()
+	return bg
 }
 
 // HandleEvent processes key/mouse events for scrolling.
@@ -311,32 +345,54 @@ func (dv *DiffView) handleKey(ev *tcell.EventKey) bool {
 
 	switch ev.Key() {
 	case tcell.KeyUp:
-		if dv.scrollY > 0 {
-			dv.scrollY--
+		if dv.cursorY > 0 {
+			dv.cursorY--
+		}
+		// Scroll up if cursor above viewport
+		if dv.cursorY < dv.scrollY {
+			dv.scrollY = dv.cursorY
 		}
 		return true
 	case tcell.KeyDown:
-		if dv.scrollY < maxScroll {
-			dv.scrollY++
+		if dv.cursorY < len(dv.lines)-1 {
+			dv.cursorY++
 		}
+		// Scroll down if cursor below viewport
+		if dv.cursorY >= dv.scrollY+contentHeight {
+			dv.scrollY = dv.cursorY - contentHeight + 1
+		}
+		return true
+	case tcell.KeyLeft:
+		dv.scrollX -= 8
+		if dv.scrollX < 0 {
+			dv.scrollX = 0
+		}
+		return true
+	case tcell.KeyRight:
+		dv.scrollX += 8
 		return true
 	case tcell.KeyPgUp:
 		dv.scrollY -= contentHeight
 		if dv.scrollY < 0 {
 			dv.scrollY = 0
 		}
+		dv.cursorY = dv.scrollY
 		return true
 	case tcell.KeyPgDn:
 		dv.scrollY += contentHeight
 		if dv.scrollY > maxScroll {
 			dv.scrollY = maxScroll
 		}
+		dv.cursorY = dv.scrollY
 		return true
 	case tcell.KeyHome:
 		dv.scrollY = 0
+		dv.cursorY = 0
+		dv.scrollX = 0
 		return true
 	case tcell.KeyEnd:
 		dv.scrollY = maxScroll
+		dv.cursorY = len(dv.lines) - 1
 		return true
 	}
 	return false
@@ -364,6 +420,7 @@ func (dv *DiffView) handleMouse(ev *tcell.EventMouse) bool {
 		if row >= 0 {
 			lineIdx := dv.scrollY + row
 			if lineIdx < len(dv.lines) {
+				dv.cursorY = lineIdx
 				if !dv.selecting {
 					dv.selecting = true
 					dv.selStart = lineIdx

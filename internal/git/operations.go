@@ -333,6 +333,43 @@ func (d *DiffTracker) CurrentBranch() string {
 	return strings.TrimSpace(string(out))
 }
 
+// Checkout switches to a branch, tag, or commit hash.
+func (d *DiffTracker) Checkout(ref string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "checkout", ref)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git checkout: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SetUpstream sets the upstream tracking branch for the given local branch.
+func (d *DiffTracker) SetUpstream(localBranch, remoteBranch string) (string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "branch", "--set-upstream-to="+remoteBranch, localBranch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git branch --set-upstream-to: %s", strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ListRemoteBranches returns all remote tracking branches (e.g. "origin/main").
+func (d *DiffTracker) ListRemoteBranches() ([]string, error) {
+	cmd := exec.Command("git", "-C", d.repoRoot, "branch", "-r", "--format=%(refname:short)")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git branch -r: %w", err)
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasSuffix(line, "/HEAD") {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
 // RepoRoot returns the repository root path.
 func (d *DiffTracker) RepoRoot() string {
 	return d.repoRoot
