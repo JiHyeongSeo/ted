@@ -64,7 +64,7 @@ func LoadDefaults() (*Config, error) {
 			Visible: false,
 		},
 		Panel: PanelConfig{
-			Height:  20,
+			Height:  30,
 			Visible: false,
 		},
 		Search: SearchConfig{

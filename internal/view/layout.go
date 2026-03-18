@@ -19,7 +19,7 @@ func NewLayout() *Layout {
 	return &Layout{
 		sidebarWidth:    30,
 		sidebarVisible:  false,
-		panelHeight:     20,
+		panelHeight:     30,
 		panelVisible:    false,
 		tabBarHeight:    1,
 		statusBarHeight: 1,

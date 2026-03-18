@@ -1808,8 +1808,6 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+shift+o", "editor.goToSymbol", "")
 	e.keymap.Bind("ctrl+home", "editor.goToBufferStart", "")
 	e.keymap.Bind("ctrl+end", "editor.goToBufferEnd", "")
-	e.keymap.Bind("ctrl+shift+-", "panel.shrink", "")
-	e.keymap.Bind("ctrl+shift+=", "panel.grow", "")
 	e.keymap.Bind("ctrl+shift+z", "edit.redo", "")
 	e.keymap.Bind("ctrl+d", "edit.duplicateLine", "")
 	e.keymap.Bind("ctrl+k", "edit.deleteLine", "")
@@ -1978,15 +1976,6 @@ func (e *Editor) ExecuteCommand(name string) error {
 		} else {
 			e.sidebarFocus = true
 		}
-	case "panel.shrink":
-		h := e.layout.PanelHeight() - 3
-		if h < 5 {
-			h = 5
-		}
-		e.layout.SetPanelHeight(h)
-	case "panel.grow":
-		h := e.layout.PanelHeight() + 3
-		e.layout.SetPanelHeight(h)
 	case "panel.toggle":
 		e.layout.SetPanelVisible(!e.layout.PanelVisible())
 		if !e.layout.PanelVisible() && e.projectSearchQuery != "" {
