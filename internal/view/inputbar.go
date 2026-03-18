@@ -103,11 +103,20 @@ func (ib *InputBar) Render(screen tcell.Screen) {
 	}
 	screen.SetContent(bounds.X+bounds.Width-1, inputY, '│', nil, borderStyle)
 
-	// Draw prompt
+	// Draw prompt — reserve at least 15 chars for user input
+	const minInputSpace = 15
+	maxPromptEnd := bounds.X + bounds.Width - 2 - minInputSpace
 	x := bounds.X + 2
-	for _, ch := range ib.prompt {
+	promptRunes := []rune(ib.prompt)
+	for i, ch := range promptRunes {
 		w := runewidth.RuneWidth(ch)
-		if x+w > bounds.X+bounds.Width-2 {
+		// If next rune would overflow, draw truncation indicator and stop
+		if x+w > maxPromptEnd {
+			_ = i
+			if x+1 <= maxPromptEnd {
+				screen.SetContent(x, inputY, '…', nil, promptStyle)
+				x++
+			}
 			break
 		}
 		screen.SetContent(x, inputY, ch, nil, promptStyle)
