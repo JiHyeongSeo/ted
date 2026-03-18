@@ -587,8 +587,13 @@ func (e *EditorView) handleKeyEvent(ev *tcell.EventKey) bool {
 		}
 		return true
 	case tcell.KeyCtrlA:
-		e.ClearSelection()
-		e.MoveCursorToLineStart()
+		// Select all
+		e.selection = &types.Selection{
+			Start: types.Position{Line: 0, Col: 0},
+			End:   types.Position{Line: e.buf.LineCount() - 1, Col: e.runeLen(e.buf.LineCount() - 1)},
+		}
+		e.cursor = e.selection.End
+		e.ensureCursorVisible()
 		return true
 	case tcell.KeyCtrlE:
 		e.ClearSelection()
