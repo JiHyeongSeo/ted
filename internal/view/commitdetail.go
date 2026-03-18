@@ -184,6 +184,13 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 		cv.drawLine(screen, bounds.X+1, y, bounds.Width-1, filesHeader, dimStyle)
 		y++
 	}
+	// Show staged legend only for uncommitted view
+	if y < bounds.Y+bounds.Height && cv.commit != nil && cv.commit.Hash == "uncommitted" {
+		legendStyle := dimStyle.Foreground(tcell.ColorGray)
+		legend := "  S=staged  ·=unstaged  (Space:stage  u:unstage)"
+		cv.drawLine(screen, bounds.X+1, y, bounds.Width-1, legend, legendStyle)
+		y++
+	}
 
 	for i := cv.scrollY; i < len(cv.files) && y < bounds.Y+bounds.Height; i++ {
 		line := cv.files[i]
@@ -220,14 +227,22 @@ func (cv *CommitDetailView) Render(screen tcell.Screen) {
 			screen.SetContent(bounds.X+1, y, '>', nil, style)
 		}
 
-		// Draw staged indicator
+		// Draw staged indicator: 'S' = staged, '·' = not staged
 		stagedX := bounds.X + 3
 		if isStaged {
-			stagedStyle := style
-			if i != cv.selectedIdx {
-				stagedStyle = addedStyle
+			stagedStyle := addedStyle
+			if i == cv.selectedIdx {
+				fg, _, _ := addedStyle.Decompose()
+				stagedStyle = selectedBg.Foreground(fg)
 			}
-			screen.SetContent(stagedX, y, '*', nil, stagedStyle)
+			screen.SetContent(stagedX, y, 'S', nil, stagedStyle)
+		} else {
+			dotStyle := dimStyle
+			if i == cv.selectedIdx {
+				fg, _, _ := dimStyle.Decompose()
+				dotStyle = selectedBg.Foreground(fg)
+			}
+			screen.SetContent(stagedX, y, '·', nil, dotStyle)
 		}
 
 		// Draw status at fixed column, then path at fixed column
