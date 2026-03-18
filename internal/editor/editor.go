@@ -570,7 +570,20 @@ func (e *Editor) Run(screen tcell.Screen) error {
 					commits, err := git.LoadCommits(repoRoot, 0, n)
 					if err == nil {
 						e.graphCommits = commits
-						rows := git.LayoutGraph(commits)
+						allCommits := commits
+						// Preserve uncommitted changes virtual entry
+						if statusEntries, _ := e.diffTracker.Status(); len(statusEntries) > 0 {
+							uncommitted := git.Commit{
+								Hash:      "uncommitted",
+								ShortHash: "•••••••",
+								Message:   "Uncommitted Changes",
+							}
+							if len(allCommits) > 0 {
+								uncommitted.Parents = []string{allCommits[0].Hash}
+							}
+							allCommits = append([]git.Commit{uncommitted}, allCommits...)
+						}
+						rows := git.LayoutGraph(allCommits)
 						e.graphView.SetRows(rows)
 					}
 				}
