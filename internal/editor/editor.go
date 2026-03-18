@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -126,6 +125,8 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.palette = view.NewCommandPalette(theme)
 	e.searchBar = view.NewSearchBar(theme)
 	e.inputBar = view.NewInputBar(theme)
+	e.searchBar.SetPasteFunc(e.readSystemClipboard)
+	e.inputBar.SetPasteFunc(e.readSystemClipboard)
 	e.listPicker = view.NewListPicker(theme)
 	e.graphFileUpdates = make(chan graphFileUpdate, 1)
 	e.lspNavResult = make(chan lsp.Location, 1)
@@ -1455,10 +1456,12 @@ func (e *Editor) syncRightTab() {
 }
 
 func (e *Editor) copyToSystemClipboard(text string) {
-	// WSL: base64-encode UTF-8 text to avoid CP949 encoding issues with PowerShell stdin
-	b64 := base64.StdEncoding.EncodeToString([]byte(text))
-	psCmd := "[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + b64 + "')) | Set-Clipboard"
-	if err := exec.Command("powershell.exe", "-NoProfile", "-Command", psCmd).Run(); err == nil {
+	// WSL: pipe via stdin to avoid command-line length limits.
+	// Use PowerShell with explicit UTF-8 input encoding.
+	psCmd := "$input = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8).ReadToEnd(); Set-Clipboard -Value $input"
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", psCmd)
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err == nil {
 		return
 	}
 	// Fallback: xclip / xsel (native UTF-8)

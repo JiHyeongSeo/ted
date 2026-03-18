@@ -1,6 +1,8 @@
 package view
 
 import (
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 	"github.com/JiHyeongSeo/ted/internal/syntax"
@@ -10,13 +12,19 @@ import (
 // InputBar is a single-line input overlay for prompts (e.g., "Go to line:").
 type InputBar struct {
 	BaseComponent
-	theme    *syntax.Theme
-	prompt   string
-	value    []rune
-	visible  bool
-	onSubmit func(value string)
-	onCancel func()
-	onChange func(value string)
+	theme     *syntax.Theme
+	prompt    string
+	value     []rune
+	visible   bool
+	onSubmit  func(value string)
+	onCancel  func()
+	onChange  func(value string)
+	pasteFunc func() string // returns clipboard text for Ctrl+V
+}
+
+// SetPasteFunc wires a clipboard reader so Ctrl+V works in the input bar.
+func (ib *InputBar) SetPasteFunc(fn func() string) {
+	ib.pasteFunc = fn
 }
 
 // NewInputBar creates a new InputBar.
@@ -173,6 +181,20 @@ func (ib *InputBar) HandleEvent(ev tcell.Event) bool {
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(ib.value) > 0 {
 			ib.value = ib.value[:len(ib.value)-1]
+			if ib.onChange != nil {
+				ib.onChange(string(ib.value))
+			}
+		}
+		return true
+	case tcell.KeyCtrlV:
+		if ib.pasteFunc != nil {
+			text := ib.pasteFunc()
+			// Only use first line of pasted text
+			if nl := strings.IndexByte(text, '\n'); nl >= 0 {
+				text = text[:nl]
+			}
+			text = strings.TrimRight(text, "\r")
+			ib.value = append(ib.value, []rune(text)...)
 			if ib.onChange != nil {
 				ib.onChange(string(ib.value))
 			}

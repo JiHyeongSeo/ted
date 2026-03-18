@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
@@ -25,6 +26,7 @@ type SearchBar struct {
 	onReplaceAll    func(query, replacement string)
 	onDismiss       func()
 	onNavigate      func(match search.Match)
+	pasteFunc       func() string
 }
 
 // NewSearchBar creates a new SearchBar.
@@ -111,6 +113,11 @@ func (sb *SearchBar) SetOnDismiss(fn func()) {
 // SetOnNavigate sets the callback for navigating to a match (Enter/Shift+Enter).
 func (sb *SearchBar) SetOnNavigate(fn func(match search.Match)) {
 	sb.onNavigate = fn
+}
+
+// SetPasteFunc wires a clipboard reader so Ctrl+V works in the search bar.
+func (sb *SearchBar) SetPasteFunc(fn func() string) {
+	sb.pasteFunc = fn
 }
 
 // drawRunes draws runes to the screen with proper wide character handling.
@@ -214,6 +221,23 @@ func (sb *SearchBar) HandleEvent(ev tcell.Event) bool {
 		} else {
 			if len(sb.query) > 0 {
 				sb.query = sb.query[:len(sb.query)-1]
+				if sb.onSearch != nil {
+					sb.onSearch(string(sb.query))
+				}
+			}
+		}
+		return true
+	case tcell.KeyCtrlV:
+		if sb.pasteFunc != nil {
+			text := sb.pasteFunc()
+			if nl := strings.IndexByte(text, '\n'); nl >= 0 {
+				text = text[:nl]
+			}
+			text = strings.TrimRight(text, "\r")
+			if sb.cursorInReplace {
+				sb.replacement = append(sb.replacement, []rune(text)...)
+			} else {
+				sb.query = append(sb.query, []rune(text)...)
 				if sb.onSearch != nil {
 					sb.onSearch(string(sb.query))
 				}
