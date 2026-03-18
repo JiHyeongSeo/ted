@@ -242,26 +242,72 @@ func (p *BottomPanel) HandleEvent(ev tcell.Event) bool {
 
 func (p *BottomPanel) handleKey(ev *tcell.EventKey) bool {
 	contentHeight := p.Bounds().Height - 1
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
 	contentLen := p.ContentLineCount()
+
+	clampScroll := func() {
+		if p.scrollY < 0 {
+			p.scrollY = 0
+		}
+		maxScroll := contentLen - contentHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if p.scrollY > maxScroll {
+			p.scrollY = maxScroll
+		}
+	}
+	ensureVisible := func() {
+		if p.selectedRow < p.scrollY {
+			p.scrollY = p.selectedRow
+		} else if p.selectedRow >= p.scrollY+contentHeight {
+			p.scrollY = p.selectedRow - contentHeight + 1
+		}
+		clampScroll()
+	}
 
 	switch ev.Key() {
 	case tcell.KeyUp:
 		if p.selectedRow > 0 {
 			p.selectedRow--
-			// Scroll up if needed
-			if p.selectedRow < p.scrollY {
-				p.scrollY = p.selectedRow
-			}
+			ensureVisible()
 		}
 		return true
 	case tcell.KeyDown:
 		if p.selectedRow < contentLen-1 {
 			p.selectedRow++
-			// Scroll down if needed
-			if p.selectedRow >= p.scrollY+contentHeight {
-				p.scrollY = p.selectedRow - contentHeight + 1
-			}
+			ensureVisible()
 		}
+		return true
+	case tcell.KeyPgUp:
+		p.selectedRow -= contentHeight
+		if p.selectedRow < 0 {
+			p.selectedRow = 0
+		}
+		ensureVisible()
+		return true
+	case tcell.KeyPgDn:
+		p.selectedRow += contentHeight
+		if p.selectedRow >= contentLen {
+			p.selectedRow = contentLen - 1
+		}
+		if p.selectedRow < 0 {
+			p.selectedRow = 0
+		}
+		ensureVisible()
+		return true
+	case tcell.KeyHome:
+		p.selectedRow = 0
+		p.scrollY = 0
+		return true
+	case tcell.KeyEnd:
+		if contentLen > 0 {
+			p.selectedRow = contentLen - 1
+		}
+		clampScroll()
+		ensureVisible()
 		return true
 	case tcell.KeyEnter:
 		if p.selectedRow >= 0 && p.onLineClick != nil {

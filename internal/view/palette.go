@@ -421,6 +421,29 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 			p.selectedIdx++
 		}
 		return true
+	case tcell.KeyHome:
+		p.selectedIdx = 0
+		return true
+	case tcell.KeyEnd:
+		if len(p.filtered) > 0 {
+			p.selectedIdx = len(p.filtered) - 1
+		}
+		return true
+	case tcell.KeyPgUp:
+		p.selectedIdx -= 10
+		if p.selectedIdx < 0 {
+			p.selectedIdx = 0
+		}
+		return true
+	case tcell.KeyPgDn:
+		p.selectedIdx += 10
+		if p.selectedIdx >= len(p.filtered) {
+			p.selectedIdx = len(p.filtered) - 1
+		}
+		if p.selectedIdx < 0 {
+			p.selectedIdx = 0
+		}
+		return true
 	case tcell.KeyTab, tcell.KeyRight:
 		if p.mode == PaletteModeZDir {
 			p.drillIntoSelected()

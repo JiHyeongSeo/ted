@@ -1401,7 +1401,7 @@ func (e *Editor) render() {
 	if e.searchBar.IsVisible() {
 		if r, ok := activeEditorRegion(); ok {
 			// VS Code style: right-aligned small overlay at top of editor
-			barWidth := 40
+			barWidth := 60
 			if barWidth > r.Width {
 				barWidth = r.Width
 			}
