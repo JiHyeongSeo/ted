@@ -124,7 +124,9 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.splitManager = NewSplitManager()
 	e.layout.SetSidebarWidth(cfg.Sidebar.Width)
 	e.layout.SetSidebarVisible(true) // sidebar always visible
-	e.layout.SetPanelHeight(cfg.Panel.Height)
+	if cfg.Panel.Height > 0 {
+		e.layout.SetPanelHeight(cfg.Panel.Height)
+	}
 	e.layout.SetPanelVisible(cfg.Panel.Visible)
 
 	e.statusBar = view.NewStatusBar(theme)
@@ -1806,8 +1808,8 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+shift+o", "editor.goToSymbol", "")
 	e.keymap.Bind("ctrl+home", "editor.goToBufferStart", "")
 	e.keymap.Bind("ctrl+end", "editor.goToBufferEnd", "")
-	e.keymap.Bind("ctrl+-", "panel.shrink", "")
-	e.keymap.Bind("ctrl+=", "panel.grow", "")
+	e.keymap.Bind("ctrl+shift+-", "panel.shrink", "")
+	e.keymap.Bind("ctrl+shift+=", "panel.grow", "")
 	e.keymap.Bind("ctrl+shift+z", "edit.redo", "")
 	e.keymap.Bind("ctrl+d", "edit.duplicateLine", "")
 	e.keymap.Bind("ctrl+k", "edit.deleteLine", "")
