@@ -32,6 +32,12 @@ type graphFileUpdate struct {
 	staged []bool
 }
 
+// autoFetchGraphData carries auto-fetched graph rows from goroutine to main thread.
+type autoFetchGraphData struct {
+	commits []git.Commit
+	rows    []git.GraphRow
+}
+
 // Editor is the top-level editor state and event loop orchestrator.
 type Editor struct {
 	screen     tcell.Screen
@@ -88,6 +94,9 @@ type Editor struct {
 	fileChangedPaths   chan string         // file paths that changed externally (for buffer reload)
 	dirChangedPaths    chan string         // dir paths that changed (for sidebar refresh)
 	fileChangePending  map[string]bool    // dirty files awaiting user decision
+	stopCh             chan struct{}       // closed when editor stops, signals goroutines to exit
+	autoFetchCh        chan autoFetchGraphData // auto-fetch goroutine → main thread graph update
+	autoSaveCh         chan struct{}       // auto-save goroutine → main thread save trigger
 }
 
 // New creates a new Editor instance.
@@ -135,6 +144,9 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.fileChangedPaths = make(chan string, 16)
 	e.dirChangedPaths = make(chan string, 16)
 	e.fileChangePending = make(map[string]bool)
+	e.stopCh = make(chan struct{})
+	e.autoFetchCh = make(chan autoFetchGraphData, 1)
+	e.autoSaveCh = make(chan struct{}, 1)
 	if w, err := fsnotify.NewWatcher(); err == nil {
 		e.fileWatcher = w
 	}
@@ -377,6 +389,9 @@ func (e *Editor) OpenFile(path string) error {
 		buf.SetPath(path)
 		idx := e.tabs.Open(buf, "csv")
 		tab := e.tabs.Tab(idx)
+		if tab == nil {
+			return fmt.Errorf("failed to create tab for %s", path)
+		}
 		tab.Kind = TabKindCSV
 		cv := view.NewCSVView(e.theme, string(content), filepath.Base(path))
 		e.wireCSVEdit(cv, tab)
@@ -537,18 +552,19 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	saveTicker := time.NewTicker(30 * time.Second)
 	defer saveTicker.Stop()
 	go func() {
-		for range saveTicker.C {
-			if !e.running {
+		for {
+			select {
+			case <-e.stopCh:
 				return
-			}
-			if time.Since(e.lastEditTime) >= 10*time.Minute {
-				tab := e.tabs.Active()
-				if tab != nil && tab.Kind == TabKindFile && tab.Buffer.IsDirty() && tab.Buffer.Path() != "" {
-					if err := tab.Buffer.Save(); err == nil {
-						e.statusBar.SetMessage("Auto-saved: " + filepath.Base(tab.Buffer.Path()))
+			case <-saveTicker.C:
+				if time.Since(e.lastEditTime) >= 10*time.Minute {
+					// Signal main thread to perform auto-save
+					select {
+					case e.autoSaveCh <- struct{}{}:
+					default:
 					}
-					if e.screen != nil {
-						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					if scr := e.screen; scr != nil {
+						scr.PostEvent(tcell.NewEventInterrupt(nil))
 					}
 				}
 			}
@@ -556,41 +572,46 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	}()
 
 	// Start auto-fetch ticker (every 60 seconds)
+	// Goroutine only does I/O work; sends result to autoFetchCh for main thread to apply.
 	fetchTicker := time.NewTicker(60 * time.Second)
 	defer fetchTicker.Stop()
 	go func() {
-		for range fetchTicker.C {
-			if e.diffTracker != nil && e.running {
-				e.diffTracker.Fetch()
-				// Update graph rows in-place (preserve scroll/selection)
-				if e.graphView != nil {
-					repoRoot := e.diffTracker.RepoRoot()
-					n := len(e.graphCommits)
-					if n < 300 {
-						n = 300
-					}
-					commits, err := git.LoadCommits(repoRoot, 0, n)
-					if err == nil {
-						e.graphCommits = commits
-						allCommits := commits
-						// Preserve uncommitted changes virtual entry
-						if statusEntries, _ := e.diffTracker.Status(); len(statusEntries) > 0 {
-							uncommitted := git.Commit{
-								Hash:      "uncommitted",
-								ShortHash: "•••••••",
-								Message:   "Uncommitted Changes",
-							}
-							if len(allCommits) > 0 {
-								uncommitted.Parents = []string{allCommits[0].Hash}
-							}
-							allCommits = append([]git.Commit{uncommitted}, allCommits...)
-						}
-						rows := git.LayoutGraph(allCommits)
-						e.graphView.SetRows(rows)
-					}
+		for {
+			select {
+			case <-e.stopCh:
+				return
+			case <-fetchTicker.C:
+				dt := e.diffTracker // read once; immutable after set
+				if dt == nil {
+					continue
 				}
-				if e.screen != nil {
-					e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+				dt.Fetch()
+				repoRoot := dt.RepoRoot()
+				n := 300
+				commits, err := git.LoadCommits(repoRoot, 0, n)
+				if err != nil {
+					continue
+				}
+				allCommits := commits
+				if statusEntries, _ := dt.Status(); len(statusEntries) > 0 {
+					uncommitted := git.Commit{
+						Hash:      "uncommitted",
+						ShortHash: "•••••••",
+						Message:   "Uncommitted Changes",
+					}
+					if len(allCommits) > 0 {
+						uncommitted.Parents = []string{allCommits[0].Hash}
+					}
+					allCommits = append([]git.Commit{uncommitted}, allCommits...)
+				}
+				rows := git.LayoutGraph(allCommits)
+				select {
+				case <-e.autoFetchCh: // drain stale
+				default:
+				}
+				e.autoFetchCh <- autoFetchGraphData{commits: commits, rows: rows}
+				if scr := e.screen; scr != nil {
+					scr.PostEvent(tcell.NewEventInterrupt(nil))
 				}
 			}
 		}
@@ -681,6 +702,26 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				}
 			default:
 			}
+			// Apply auto-fetch graph result on main thread (safe: only here writes graphView/graphCommits)
+			select {
+			case data := <-e.autoFetchCh:
+				if e.graphView != nil {
+					e.graphCommits = data.commits
+					e.graphView.SetRows(data.rows)
+				}
+			default:
+			}
+			// Handle auto-save trigger from background goroutine
+			select {
+			case <-e.autoSaveCh:
+				tab := e.tabs.Active()
+				if tab != nil && tab.Kind == TabKindFile && tab.Buffer.IsDirty() && tab.Buffer.Path() != "" {
+					if err := tab.Buffer.Save(); err == nil {
+						e.statusBar.SetMessage("Auto-saved: " + filepath.Base(tab.Buffer.Path()))
+					}
+				}
+			default:
+			}
 			// Handle LSP document symbols on the main thread
 			select {
 			case syms := <-e.lspSymbolResult:
@@ -714,9 +755,15 @@ func (e *Editor) Run(screen tcell.Screen) error {
 }
 
 // Stop signals the editor to exit.
+
 func (e *Editor) Stop() {
 	e.saveSession()
 	e.running = false
+	select {
+	case <-e.stopCh: // already closed
+	default:
+		close(e.stopCh)
+	}
 }
 
 // saveSession persists currently open file paths to disk.
@@ -2545,13 +2592,22 @@ func (e *Editor) handleExternalFileChange(path string) {
 		e.inputBar.Hide()
 		delete(e.fileChangePending, path)
 		if strings.ToLower(strings.TrimSpace(answer)) == "r" {
+			// Re-fetch tab by path to avoid using a stale pointer if the tab was closed
+			freshIdx := e.tabs.FindByPath(path)
+			if freshIdx < 0 {
+				return
+			}
+			freshTab := e.tabs.Tab(freshIdx)
+			if freshTab == nil {
+				return
+			}
 			newContent, err := os.ReadFile(path)
 			if err != nil {
 				e.statusBar.SetMessage("Cannot read: " + filepath.Base(path))
 				return
 			}
-			tab.Buffer.SetContent(string(newContent))
-			if e.tabs.FindByPath(path) == e.tabs.ActiveIndex() && e.editorView != nil {
+			freshTab.Buffer.SetContent(string(newContent))
+			if freshIdx == e.tabs.ActiveIndex() && e.editorView != nil {
 				e.editorView.ReparseHighlighting()
 			}
 			e.statusBar.SetMessage("Reloaded: " + filepath.Base(path))
