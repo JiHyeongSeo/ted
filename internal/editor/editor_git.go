@@ -233,10 +233,11 @@ func (e *Editor) gitOpenGraph() {
 			return
 		}
 		if commit.Hash == "uncommitted" {
-			// Show working tree changes with staged info
+			// Always fetch fresh status so staged flags reflect current state
+			freshEntries, _ := e.diffTracker.Status()
 			var files []string
 			var staged []bool
-			for _, entry := range statusEntries {
+			for _, entry := range freshEntries {
 				files = append(files, entry.Status+"\t"+entry.Path)
 				staged = append(staged, entry.Staged)
 			}
