@@ -19,7 +19,7 @@ func NewLayout() *Layout {
 	return &Layout{
 		sidebarWidth:    30,
 		sidebarVisible:  false,
-		panelHeight:     12,
+		panelHeight:     20,
 		panelVisible:    false,
 		tabBarHeight:    1,
 		statusBarHeight: 1,
@@ -34,6 +34,7 @@ func (l *Layout) SetSidebarWidth(w int)    { l.sidebarWidth = w }
 func (l *Layout) SetPanelHeight(h int)     { l.panelHeight = h }
 func (l *Layout) SidebarVisible() bool     { return l.sidebarVisible }
 func (l *Layout) PanelVisible() bool       { return l.panelVisible }
+func (l *Layout) PanelHeight() int         { return l.panelHeight }
 
 func (l *Layout) SetSplitMode(v bool) { l.splitMode = v }
 func (l *Layout) SplitMode() bool     { return l.splitMode }

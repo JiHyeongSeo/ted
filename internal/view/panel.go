@@ -6,10 +6,24 @@ import (
 	"github.com/JiHyeongSeo/ted/internal/syntax"
 )
 
+// PanelSpan is a styled text segment for rich panel lines.
+type PanelSpan struct {
+	Text  string
+	Style tcell.Style
+}
+
+// RichLine is a single panel line with colored spans and an optional navigation tag.
+// Tag == -1 means the line is not navigable (header/separator).
+type RichLine struct {
+	Spans []PanelSpan
+	Tag   int // result index; -1 = not navigable
+}
+
 // PanelTab represents a tab in the bottom panel.
 type PanelTab struct {
-	Name    string
-	Content []string // lines of content
+	Name      string
+	Content   []string   // plain text lines (fallback)
+	RichLines []RichLine // colored lines; used when non-nil
 }
 
 // BottomPanel is a tabbed container at the bottom of the editor.
@@ -59,14 +73,37 @@ func (p *BottomPanel) SelectedRow() int {
 	return p.selectedRow
 }
 
-// SetContent sets the content for a panel tab.
+// SetContent sets plain-text content for a panel tab.
 func (p *BottomPanel) SetContent(tabIdx int, lines []string) {
 	if tabIdx >= 0 && tabIdx < len(p.tabs) {
 		p.tabs[tabIdx].Content = lines
+		p.tabs[tabIdx].RichLines = nil
 		if tabIdx == p.activeTab {
 			p.selectedRow = -1
 		}
 	}
+}
+
+// SetRichContent sets colored content for a panel tab.
+func (p *BottomPanel) SetRichContent(tabIdx int, lines []RichLine) {
+	if tabIdx >= 0 && tabIdx < len(p.tabs) {
+		p.tabs[tabIdx].RichLines = lines
+		p.tabs[tabIdx].Content = nil
+		if tabIdx == p.activeTab {
+			p.selectedRow = -1
+		}
+	}
+}
+
+// LineTag returns the navigation tag of a content line (-1 = not navigable).
+func (p *BottomPanel) LineTag(lineIdx int) int {
+	if p.activeTab >= 0 && p.activeTab < len(p.tabs) {
+		tab := &p.tabs[p.activeTab]
+		if tab.RichLines != nil && lineIdx >= 0 && lineIdx < len(tab.RichLines) {
+			return tab.RichLines[lineIdx].Tag
+		}
+	}
+	return -1
 }
 
 // AppendContent appends a line to a panel tab.
@@ -86,7 +123,11 @@ func (p *BottomPanel) ClearContent(tabIdx int) {
 // ContentLineCount returns the number of content lines in the active tab.
 func (p *BottomPanel) ContentLineCount() int {
 	if p.activeTab >= 0 && p.activeTab < len(p.tabs) {
-		return len(p.tabs[p.activeTab].Content)
+		tab := &p.tabs[p.activeTab]
+		if tab.RichLines != nil {
+			return len(tab.RichLines)
+		}
+		return len(tab.Content)
 	}
 	return 0
 }
@@ -126,31 +167,63 @@ func (p *BottomPanel) Render(screen tcell.Screen) {
 
 	// Draw content area
 	if p.activeTab >= 0 && p.activeTab < len(p.tabs) {
-		content := p.tabs[p.activeTab].Content
+		tab := &p.tabs[p.activeTab]
 		contentHeight := bounds.Height - 1 // subtract tab row
 
-		for i := 0; i < contentHeight && i+p.scrollY < len(content); i++ {
-			lineIdx := i + p.scrollY
-			line := content[lineIdx]
-			y := bounds.Y + 1 + i
-			x := bounds.X
+		if tab.RichLines != nil {
+			for i := 0; i < contentHeight && i+p.scrollY < len(tab.RichLines); i++ {
+				lineIdx := i + p.scrollY
+				rl := tab.RichLines[lineIdx]
+				y := bounds.Y + 1 + i
+				x := bounds.X
+				isSelected := lineIdx == p.selectedRow && rl.Tag >= 0
 
-			style := panelStyle
-			if lineIdx == p.selectedRow {
-				style = selectedStyle
-				// Fill entire row with selected style
-				for cx := bounds.X; cx < bounds.X+bounds.Width; cx++ {
-					screen.SetContent(cx, y, ' ', nil, style)
+				if isSelected {
+					for cx := bounds.X; cx < bounds.X+bounds.Width; cx++ {
+						screen.SetContent(cx, y, ' ', nil, selectedStyle)
+					}
+				}
+
+				for _, span := range rl.Spans {
+					st := span.Style
+					if isSelected {
+						// Keep foreground, use selected background
+						fg, _, _ := span.Style.Decompose()
+						st = selectedStyle.Foreground(fg)
+					}
+					for _, ch := range span.Text {
+						w := runewidth.RuneWidth(ch)
+						if x+w > bounds.X+bounds.Width {
+							break
+						}
+						screen.SetContent(x, y, ch, nil, st)
+						x += w
+					}
 				}
 			}
+		} else {
+			for i := 0; i < contentHeight && i+p.scrollY < len(tab.Content); i++ {
+				lineIdx := i + p.scrollY
+				line := tab.Content[lineIdx]
+				y := bounds.Y + 1 + i
+				x := bounds.X
 
-			for _, ch := range line {
-				w := runewidth.RuneWidth(ch)
-				if x+w > bounds.X+bounds.Width {
-					break
+				style := panelStyle
+				if lineIdx == p.selectedRow {
+					style = selectedStyle
+					for cx := bounds.X; cx < bounds.X+bounds.Width; cx++ {
+						screen.SetContent(cx, y, ' ', nil, style)
+					}
 				}
-				screen.SetContent(x, y, ch, nil, style)
-				x += w
+
+				for _, ch := range line {
+					w := runewidth.RuneWidth(ch)
+					if x+w > bounds.X+bounds.Width {
+						break
+					}
+					screen.SetContent(x, y, ch, nil, style)
+					x += w
+				}
 			}
 		}
 	}

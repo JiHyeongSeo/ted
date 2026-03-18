@@ -1806,6 +1806,8 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("ctrl+shift+o", "editor.goToSymbol", "")
 	e.keymap.Bind("ctrl+home", "editor.goToBufferStart", "")
 	e.keymap.Bind("ctrl+end", "editor.goToBufferEnd", "")
+	e.keymap.Bind("ctrl+-", "panel.shrink", "")
+	e.keymap.Bind("ctrl+=", "panel.grow", "")
 	e.keymap.Bind("ctrl+shift+z", "edit.redo", "")
 	e.keymap.Bind("ctrl+d", "edit.duplicateLine", "")
 	e.keymap.Bind("ctrl+k", "edit.deleteLine", "")
@@ -1974,6 +1976,15 @@ func (e *Editor) ExecuteCommand(name string) error {
 		} else {
 			e.sidebarFocus = true
 		}
+	case "panel.shrink":
+		h := e.layout.PanelHeight() - 3
+		if h < 5 {
+			h = 5
+		}
+		e.layout.SetPanelHeight(h)
+	case "panel.grow":
+		h := e.layout.PanelHeight() + 3
+		e.layout.SetPanelHeight(h)
 	case "panel.toggle":
 		e.layout.SetPanelVisible(!e.layout.PanelVisible())
 		if !e.layout.PanelVisible() && e.projectSearchQuery != "" {
@@ -2673,24 +2684,8 @@ func (e *Editor) showProjectSearch() {
 			}
 			e.projectSearchResults = results
 			e.projectSearchQuery = query
-			var lines []string
-			for _, r := range results {
-				rel, _ := filepath.Rel(e.projectRoot, r.File)
-				if rel == "" {
-					rel = r.File
-				}
-				lines = append(lines, fmt.Sprintf("%s:%d:%d  %s", rel, r.Line, r.Col, r.Text))
-			}
-			engine := "built-in"
-			if _, err := exec.LookPath("rg"); err == nil {
-				engine = "rg"
-			}
-			if len(lines) == 0 {
-				lines = append(lines, fmt.Sprintf("No results for '%s' [%s]", query, engine))
-			} else {
-				lines = append([]string{fmt.Sprintf("Found %d results for '%s' [%s]:", len(results), query, engine)}, lines...)
-			}
-			e.panel.SetContent(1, lines)
+			richLines := e.formatSearchResults(results, query)
+			e.panel.SetRichContent(1, richLines)
 			e.statusBar.SetMessage(fmt.Sprintf("Found %d results", len(results)))
 			if e.screen != nil {
 				e.screen.PostEvent(tcell.NewEventInterrupt(nil))
@@ -2749,8 +2744,8 @@ func (e *Editor) navigatePanelLine(tabIdx int, lineIdx int) {
 	// Panel content lines have format: "path:line:col ..."
 	// Try to parse from projectSearchResults if available (Output tab)
 	if tabIdx == 1 && len(e.projectSearchResults) > 0 {
-		// lineIdx 0 is the header "Found N results for '...'"
-		resultIdx := lineIdx - 1
+		// Use the Tag from the rich line to get the result index (tag == -1 for headers)
+		resultIdx := e.panel.LineTag(lineIdx)
 		if resultIdx >= 0 && resultIdx < len(e.projectSearchResults) {
 			r := e.projectSearchResults[resultIdx]
 			// If file is already open, just switch tab without recreating EditorView
@@ -2800,6 +2795,103 @@ func (e *Editor) navigatePanelLine(tabIdx int, lineIdx int) {
 			}
 		}
 	}
+}
+
+// formatSearchResults builds rich-colored panel lines from search results,
+// grouped by file with match text highlighted.
+func (e *Editor) formatSearchResults(results []search.FileMatch, query string) []view.RichLine {
+	base := e.theme.UIStyle("panel")
+	dimStyle := base.Foreground(tcell.ColorGray)
+	fileStyle := base.Foreground(tcell.ColorSteelBlue).Bold(true)
+	lineNumStyle := base.Foreground(tcell.ColorGoldenrod)
+	matchStyle := base.Foreground(tcell.ColorYellow).Bold(true)
+	textStyle := base.Foreground(tcell.ColorWhite)
+
+	engine := "built-in"
+	if _, err := exec.LookPath("rg"); err == nil {
+		engine = "rg"
+	}
+
+	var lines []view.RichLine
+
+	// Header
+	if len(results) == 0 {
+		lines = append(lines, view.RichLine{Tag: -1, Spans: []view.PanelSpan{
+			{Text: fmt.Sprintf("  No results for '%s' [%s]", query, engine), Style: dimStyle},
+		}})
+		return lines
+	}
+	lines = append(lines, view.RichLine{Tag: -1, Spans: []view.PanelSpan{
+		{Text: fmt.Sprintf("  %d matches for ", len(results)), Style: dimStyle},
+		{Text: "'" + query + "'", Style: matchStyle},
+		{Text: fmt.Sprintf("  [%s]", engine), Style: dimStyle},
+	}})
+
+	// Group by file
+	type fileGroup struct {
+		file    string
+		rel     string
+		indices []int
+	}
+	var groups []fileGroup
+	fileIdx := map[string]int{}
+	for i, r := range results {
+		rel, _ := filepath.Rel(e.projectRoot, r.File)
+		if rel == "" {
+			rel = r.File
+		}
+		if gi, ok := fileIdx[r.File]; ok {
+			groups[gi].indices = append(groups[gi].indices, i)
+		} else {
+			fileIdx[r.File] = len(groups)
+			groups = append(groups, fileGroup{file: r.File, rel: rel, indices: []int{i}})
+		}
+	}
+
+	for _, g := range groups {
+		// File header line
+		count := fmt.Sprintf("  (%d)", len(g.indices))
+		lines = append(lines, view.RichLine{Tag: -1, Spans: []view.PanelSpan{
+			{Text: "  ▸ ", Style: dimStyle},
+			{Text: g.rel, Style: fileStyle},
+			{Text: count, Style: dimStyle},
+		}})
+		// Match lines
+		for _, ri := range g.indices {
+			r := results[ri]
+			lineNum := fmt.Sprintf("    %d", r.Line)
+			sep := " │ "
+			text := strings.TrimSpace(r.Text)
+			// Highlight the matched portion within text
+			lowerText := strings.ToLower(text)
+			lowerQuery := strings.ToLower(query)
+			matchIdx := strings.Index(lowerText, lowerQuery)
+
+			var textSpans []view.PanelSpan
+			if matchIdx >= 0 && query != "" {
+				before := text[:matchIdx]
+				matched := text[matchIdx : matchIdx+len(query)]
+				after := text[matchIdx+len(query):]
+				if before != "" {
+					textSpans = append(textSpans, view.PanelSpan{Text: before, Style: textStyle})
+				}
+				textSpans = append(textSpans, view.PanelSpan{Text: matched, Style: matchStyle})
+				if after != "" {
+					textSpans = append(textSpans, view.PanelSpan{Text: after, Style: textStyle})
+				}
+			} else {
+				textSpans = []view.PanelSpan{{Text: text, Style: textStyle}}
+			}
+
+			spans := []view.PanelSpan{
+				{Text: lineNum, Style: lineNumStyle},
+				{Text: sep, Style: dimStyle},
+			}
+			spans = append(spans, textSpans...)
+			lines = append(lines, view.RichLine{Tag: ri, Spans: spans})
+		}
+	}
+	return lines
 }
 
 // highlightProjectSearchInFile highlights all occurrences of the project search
