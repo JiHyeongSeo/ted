@@ -1804,6 +1804,11 @@ func (e *Editor) LoadKeybindings() {
 	e.keymap.Bind("alt+z", "edit.toggleFold", "")
 	e.keymap.Bind("alt+shift+z", "edit.unfoldAll", "")
 	e.keymap.Bind("ctrl+shift+o", "editor.goToSymbol", "")
+	e.keymap.Bind("ctrl+home", "editor.goToBufferStart", "")
+	e.keymap.Bind("ctrl+end", "editor.goToBufferEnd", "")
+	e.keymap.Bind("ctrl+shift+z", "edit.redo", "")
+	e.keymap.Bind("ctrl+d", "edit.duplicateLine", "")
+	e.keymap.Bind("ctrl+k", "edit.deleteLine", "")
 	// Load additional keybindings from JSON config file.
 	// Lookup order: user config (~/.config/ted/keybindings.json) then
 	// project-local (.ted/keybindings.json), so project settings win.
@@ -1895,6 +1900,26 @@ func (e *Editor) ExecuteCommand(name string) error {
 			if e.editorView != nil {
 				e.editorView.ReparseHighlighting()
 			}
+		}
+	case "edit.duplicateLine":
+		if e.editorView != nil {
+			e.editorView.DuplicateLine()
+			e.syncTabFromView()
+		}
+	case "edit.deleteLine":
+		if e.editorView != nil {
+			e.editorView.DeleteLine()
+			e.syncTabFromView()
+		}
+	case "editor.goToBufferStart":
+		if e.editorView != nil {
+			e.editorView.MoveCursorToBufferStart()
+			e.syncTabFromView()
+		}
+	case "editor.goToBufferEnd":
+		if e.editorView != nil {
+			e.editorView.MoveCursorToBufferEnd()
+			e.syncTabFromView()
 		}
 	case "edit.toggleFold":
 		if e.editorView != nil {

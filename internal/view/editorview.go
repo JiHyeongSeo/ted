@@ -923,6 +923,57 @@ func (e *EditorView) MoveCursorToLineEnd() {
 	e.ensureCursorVisible()
 }
 
+// DuplicateLine duplicates the current line (or selection lines) below.
+func (e *EditorView) DuplicateLine() {
+	if e.buf.ReadOnly {
+		return
+	}
+	line := e.cursor.Line
+	text := e.buf.Line(line)
+	// Insert a newline + copy of the line after the current line
+	endByteCol := len(text)
+	e.buf.Insert(line, endByteCol, "\n"+text)
+	e.cursor.Line++
+	e.reparseTS()
+	e.ensureCursorVisible()
+}
+
+// DeleteLine deletes the current line.
+func (e *EditorView) DeleteLine() {
+	if e.buf.ReadOnly {
+		return
+	}
+	e.selection = nil
+	line := e.cursor.Line
+	lineCount := e.buf.LineCount()
+	if lineCount == 1 {
+		// Only line: clear it
+		text := e.buf.Line(0)
+		if len(text) > 0 {
+			e.buf.Delete(0, 0, len(text))
+		}
+		e.cursor.Col = 0
+	} else if line < lineCount-1 {
+		// Delete line including its trailing newline
+		text := e.buf.Line(line)
+		e.buf.Delete(line, 0, len(text)+1) // +1 for newline
+		if e.cursor.Line >= e.buf.LineCount() {
+			e.cursor.Line = e.buf.LineCount() - 1
+		}
+		e.cursor.Col = 0
+	} else {
+		// Last line: delete preceding newline + this line content
+		prevLine := line - 1
+		prevLen := len(e.buf.Line(prevLine))
+		text := e.buf.Line(line)
+		e.buf.Delete(prevLine, prevLen, len(text)+1)
+		e.cursor.Line = prevLine
+		e.cursor.Col = e.runeLen(prevLine)
+	}
+	e.reparseTS()
+	e.ensureCursorVisible()
+}
+
 // MoveCursorToBufferStart moves the cursor to the start of the buffer.
 func (e *EditorView) MoveCursorToBufferStart() {
 	e.cursor.Line = 0

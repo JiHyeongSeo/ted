@@ -168,16 +168,44 @@ func (sb *SearchBar) Render(screen tcell.Screen) {
 		matchInfo = " (0 results)"
 	}
 
-	x := drawRunes(screen, bounds.X, bounds.Y, maxX, searchLabel, style)
+	cursorStyle := style.Reverse(true)
+	activeStyle := style.Bold(true)
+
+	// Find row — bold label when active field
+	var x int
+	if !sb.cursorInReplace {
+		x = drawRunes(screen, bounds.X, bounds.Y, maxX, searchLabel, activeStyle)
+	} else {
+		x = drawRunes(screen, bounds.X, bounds.Y, maxX, searchLabel, style)
+	}
 	x = drawRunes(screen, x, bounds.Y, maxX, sb.query, style)
+	// Draw cursor at end of query when this field is active
+	cursorX, cursorY := x, bounds.Y
+	if !sb.cursorInReplace && x < maxX {
+		screen.SetContent(x, bounds.Y, ' ', nil, cursorStyle)
+		x++
+	}
 	drawRunes(screen, x, bounds.Y, maxX, []rune(matchInfo), style)
 
 	// Replace row (if in replace mode)
 	if sb.replaceMode && bounds.Height > 1 {
 		replaceLabel := []rune(" Replace: ")
-		x = drawRunes(screen, bounds.X, bounds.Y+1, maxX, replaceLabel, style)
-		drawRunes(screen, x, bounds.Y+1, maxX, sb.replacement, style)
+		if sb.cursorInReplace {
+			x = drawRunes(screen, bounds.X, bounds.Y+1, maxX, replaceLabel, activeStyle)
+		} else {
+			x = drawRunes(screen, bounds.X, bounds.Y+1, maxX, replaceLabel, style)
+		}
+		x = drawRunes(screen, x, bounds.Y+1, maxX, sb.replacement, style)
+		if sb.cursorInReplace {
+			cursorX, cursorY = x, bounds.Y+1
+			if x < maxX {
+				screen.SetContent(x, bounds.Y+1, ' ', nil, cursorStyle)
+			}
+		}
 	}
+
+	// Move hardware cursor to the active input field
+	screen.ShowCursor(cursorX, cursorY)
 }
 
 // HandleEvent processes key events for the search bar.

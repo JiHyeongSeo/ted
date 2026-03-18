@@ -276,6 +276,11 @@ func (p *CommandPalette) Render(screen tcell.Screen) {
 		screen.SetContent(x, startY, ch, nil, fgStyle)
 		x += w
 	}
+	// Draw cursor at end of input and position hardware cursor
+	if x < startX+paletteWidth-2 {
+		screen.SetContent(x, startY, ' ', nil, fgStyle.Reverse(true))
+	}
+	screen.ShowCursor(x, startY)
 
 	// Draw hint text when empty
 	showHint := p.query == "" ||
