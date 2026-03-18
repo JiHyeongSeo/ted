@@ -85,8 +85,9 @@ type Editor struct {
 	mouseDown          bool   // tracking mouse button1 press for drag selection
 	configDir          string // user config directory (for session, keybindings, etc.)
 	lastEditTime       time.Time // last time the buffer was modified (for auto-save)
-	fileWatcher        *fsnotify.Watcher  // watches open files for external changes
-	fileChangedPaths   chan string         // paths that changed externally
+	fileWatcher        *fsnotify.Watcher  // watches open files and project dirs for external changes
+	fileChangedPaths   chan string         // file paths that changed externally (for buffer reload)
+	dirChangedPaths    chan string         // dir paths that changed (for sidebar refresh)
 	fileChangePending  map[string]bool    // dirty files awaiting user decision
 }
 
@@ -130,6 +131,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.lspNavResult = make(chan lsp.Location, 1)
 	e.lspSymbolResult = make(chan []lsp.DocumentSymbol, 1)
 	e.fileChangedPaths = make(chan string, 16)
+	e.dirChangedPaths = make(chan string, 16)
 	e.fileChangePending = make(map[string]bool)
 	if w, err := fsnotify.NewWatcher(); err == nil {
 		e.fileWatcher = w
@@ -422,6 +424,10 @@ func (e *Editor) OpenDirectory(path string) {
 	e.layout.SetSidebarVisible(true)
 	e.sidebarFocus = true // start with sidebar focus
 	e.updatePaletteFileItems()
+	// Watch the project root directory for filesystem changes
+	if e.fileWatcher != nil {
+		_ = e.fileWatcher.Add(absPath)
+	}
 }
 
 // OpenEmpty opens a new empty buffer tab (used internally for placeholder tabs).
@@ -490,14 +496,30 @@ func (e *Editor) Run(screen tcell.Screen) error {
 					if !ok {
 						return
 					}
-					if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+					// File content changes → buffer reload
+					if event.Has(fsnotify.Write) {
 						select {
 						case e.fileChangedPaths <- event.Name:
 						default:
 						}
-						if e.screen != nil {
-							e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+					}
+					// Filesystem structure changes → sidebar refresh
+					if event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+						dir := filepath.Dir(event.Name)
+						select {
+						case e.dirChangedPaths <- dir:
+						default:
 						}
+						// Also handle Write for buffer reload on Create
+						if event.Has(fsnotify.Create) {
+							select {
+							case e.fileChangedPaths <- event.Name:
+							default:
+							}
+						}
+					}
+					if e.screen != nil {
+						e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 					}
 				case _, ok := <-e.fileWatcher.Errors:
 					if !ok {
@@ -597,7 +619,7 @@ func (e *Editor) Run(screen tcell.Screen) error {
 		case *tcell.EventInterrupt:
 			// Triggered by async operations (LSP, git, file watcher)
 			_ = tev
-			// Handle externally changed files
+			// Handle externally changed files (buffer reload)
 			drainChanged:
 			for {
 				select {
@@ -606,6 +628,21 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				default:
 					break drainChanged
 				}
+			}
+			// Handle directory changes (sidebar refresh)
+			sidebarNeedsRefresh := false
+			drainDirChanged:
+			for {
+				select {
+				case <-e.dirChangedPaths:
+					sidebarNeedsRefresh = true
+				default:
+					break drainDirChanged
+				}
+			}
+			if sidebarNeedsRefresh {
+				e.sidebar.Refresh()
+				e.updatePaletteFileItems()
 			}
 			// Drain graph file updates from goroutines
 			select {
