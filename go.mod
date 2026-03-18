@@ -4,6 +4,7 @@ go 1.25.6
 
 require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/gdamore/tcell/v2 v2.13.8 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect

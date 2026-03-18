@@ -184,6 +184,16 @@ func (b *Buffer) DisplayName() string {
 	return b.untitledName
 }
 
+// SetContent replaces the entire buffer content with the given string,
+// resets undo history, and marks the buffer as clean (not dirty).
+// Used for external file reload.
+func (b *Buffer) SetContent(content string) {
+	b.pt = NewPieceTableFromString(content)
+	b.undo = NewUndoManager(b.pt)
+	b.undo.MarkSaved()
+	b.rebuildLineIndex()
+}
+
 // Close releases resources held by the buffer (e.g., mmap).
 func (b *Buffer) Close() error {
 	return b.pt.Close()

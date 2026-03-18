@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/gdamore/tcell/v2"
 	"github.com/JiHyeongSeo/ted/internal/buffer"
 	"github.com/JiHyeongSeo/ted/internal/config"
@@ -84,6 +85,9 @@ type Editor struct {
 	mouseDown          bool   // tracking mouse button1 press for drag selection
 	configDir          string // user config directory (for session, keybindings, etc.)
 	lastEditTime       time.Time // last time the buffer was modified (for auto-save)
+	fileWatcher        *fsnotify.Watcher  // watches open files for external changes
+	fileChangedPaths   chan string         // paths that changed externally
+	fileChangePending  map[string]bool    // dirty files awaiting user decision
 }
 
 // New creates a new Editor instance.
@@ -125,6 +129,11 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.graphFileUpdates = make(chan graphFileUpdate, 1)
 	e.lspNavResult = make(chan lsp.Location, 1)
 	e.lspSymbolResult = make(chan []lsp.DocumentSymbol, 1)
+	e.fileChangedPaths = make(chan string, 16)
+	e.fileChangePending = make(map[string]bool)
+	if w, err := fsnotify.NewWatcher(); err == nil {
+		e.fileWatcher = w
+	}
 	e.autocomplete = view.NewAutocompletePopup(theme)
 	e.tooltip = view.NewTooltip(theme)
 	e.recentFiles = LoadRecentFiles()
@@ -386,6 +395,11 @@ func (e *Editor) OpenFile(path string) error {
 	// Track recent files
 	e.recentFiles.Add(path)
 
+	// Watch for external changes
+	if e.fileWatcher != nil {
+		_ = e.fileWatcher.Add(path)
+	}
+
 	// Start LSP if needed and notify didOpen
 	e.ensureLSP()
 	tab := e.tabs.Active()
@@ -465,6 +479,34 @@ func (e *Editor) Run(screen tcell.Screen) error {
 	e.ensureLSP()
 
 	defer e.lspManager.StopAll()
+
+	// Start file watcher goroutine
+	if e.fileWatcher != nil {
+		defer e.fileWatcher.Close()
+		go func() {
+			for {
+				select {
+				case event, ok := <-e.fileWatcher.Events:
+					if !ok {
+						return
+					}
+					if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+						select {
+						case e.fileChangedPaths <- event.Name:
+						default:
+						}
+						if e.screen != nil {
+							e.screen.PostEvent(tcell.NewEventInterrupt(nil))
+						}
+					}
+				case _, ok := <-e.fileWatcher.Errors:
+					if !ok {
+						return
+					}
+				}
+			}
+		}()
+	}
 
 	// Start auto-save ticker (checks every 30 seconds, saves after 10 min idle)
 	e.lastEditTime = time.Now()
@@ -553,8 +595,18 @@ func (e *Editor) Run(screen tcell.Screen) error {
 			e.handleMouseEvent(tev)
 			e.render()
 		case *tcell.EventInterrupt:
-			// Triggered by async operations (LSP, git)
+			// Triggered by async operations (LSP, git, file watcher)
 			_ = tev
+			// Handle externally changed files
+			drainChanged:
+			for {
+				select {
+				case path := <-e.fileChangedPaths:
+					e.handleExternalFileChange(path)
+				default:
+					break drainChanged
+				}
+			}
 			// Drain graph file updates from goroutines
 			select {
 			case upd := <-e.graphFileUpdates:
@@ -2365,6 +2417,19 @@ func (e *Editor) closeCurrentTab() {
 			lsp.DidClose(client, lsp.FileURIFromPath(tab.Buffer.Path()))
 		}
 	}
+	// Unwatch file (only if no other tab has the same path)
+	if p := tab.Buffer.Path(); p != "" && e.fileWatcher != nil {
+		otherOpen := false
+		for _, t := range e.tabs.All() {
+			if t != tab && t.Buffer.Path() == p {
+				otherOpen = true
+				break
+			}
+		}
+		if !otherOpen {
+			_ = e.fileWatcher.Remove(p)
+		}
+	}
 	tab.Buffer.Close()
 	idx := e.tabs.ActiveIndex()
 	e.tabs.Close(idx)
@@ -2372,6 +2437,60 @@ func (e *Editor) closeCurrentTab() {
 		e.OpenEmpty()
 	}
 	e.syncViewToTab()
+}
+
+// handleExternalFileChange reloads or notifies about a file changed outside ted.
+func (e *Editor) handleExternalFileChange(path string) {
+	// Find the tab with this path
+	idx := e.tabs.FindByPath(path)
+	if idx < 0 {
+		return
+	}
+	tab := e.tabs.Tab(idx)
+	if tab == nil || tab.Kind != TabKindFile {
+		return
+	}
+
+	if !tab.Buffer.IsDirty() {
+		// Safe to auto-reload
+		newContent, err := os.ReadFile(path)
+		if err != nil {
+			return
+		}
+		tab.Buffer.SetContent(string(newContent))
+		// If this is the active tab, refresh the view
+		if idx == e.tabs.ActiveIndex() && e.editorView != nil {
+			e.editorView.ReparseHighlighting()
+		}
+		e.statusBar.SetMessage("Reloaded: " + filepath.Base(path))
+		return
+	}
+
+	// Buffer is dirty — ask user only once per path
+	if e.fileChangePending[path] {
+		return
+	}
+	e.fileChangePending[path] = true
+	e.statusBar.SetMessage(fmt.Sprintf("'%s' changed on disk. Reload and discard edits? (r=reload / k=keep)", filepath.Base(path)))
+	e.inputBar.Show(fmt.Sprintf("'%s' changed externally. [r]eload / [k]eep: ", filepath.Base(path)))
+	e.inputBar.SetOnSubmit(func(answer string) {
+		e.inputBar.Hide()
+		delete(e.fileChangePending, path)
+		if strings.ToLower(strings.TrimSpace(answer)) == "r" {
+			newContent, err := os.ReadFile(path)
+			if err != nil {
+				e.statusBar.SetMessage("Cannot read: " + filepath.Base(path))
+				return
+			}
+			tab.Buffer.SetContent(string(newContent))
+			if e.tabs.FindByPath(path) == e.tabs.ActiveIndex() && e.editorView != nil {
+				e.editorView.ReparseHighlighting()
+			}
+			e.statusBar.SetMessage("Reloaded: " + filepath.Base(path))
+		} else {
+			e.statusBar.SetMessage("Kept local edits for: " + filepath.Base(path))
+		}
+	})
 }
 
 // showProjectSearch opens the project-wide search input.
