@@ -180,6 +180,14 @@ func (e *Editor) gitOpenGraph() {
 		}
 	}
 
+	// Warn if there are unsaved buffers (git won't see in-memory changes)
+	for _, tab := range e.tabs.All() {
+		if tab.Kind == TabKindFile && tab.Buffer.IsDirty() {
+			e.statusBar.SetMessage("Warning: unsaved changes won't appear in git graph until saved")
+			break
+		}
+	}
+
 	// Load initial batch of commits
 	const initialBatch = 300
 	commits, err := git.LoadCommits(e.diffTracker.RepoRoot(), 0, initialBatch)
@@ -1144,11 +1152,12 @@ func (e *Editor) sendGraphFileUpdate() {
 		files = append(files, entry.Status+"\t"+entry.Path)
 		staged = append(staged, entry.Staged)
 	}
-	// Non-blocking send (drop if channel full — next update will refresh)
+	// Drain stale value then send fresh one (guarantees the latest status is delivered)
 	select {
-	case e.graphFileUpdates <- graphFileUpdate{files: files, staged: staged}:
+	case <-e.graphFileUpdates:
 	default:
 	}
+	e.graphFileUpdates <- graphFileUpdate{files: files, staged: staged}
 	if e.screen != nil {
 		e.screen.PostEvent(tcell.NewEventInterrupt(nil))
 	}
