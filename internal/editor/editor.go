@@ -1473,7 +1473,7 @@ func (e *Editor) syncRightTab() {
 func (e *Editor) copyToSystemClipboard(text string) {
 	// WSL: pipe via stdin to avoid command-line length limits.
 	// Use PowerShell with explicit UTF-8 input encoding.
-	psCmd := "$input = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8).ReadToEnd(); Set-Clipboard -Value $input"
+	psCmd := "Set-Clipboard -Value ([System.Console]::In.ReadToEnd())"
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", psCmd)
 	cmd.Stdin = strings.NewReader(text)
 	if err := cmd.Run(); err == nil {
