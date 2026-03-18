@@ -52,6 +52,7 @@ type CommandPalette struct {
 	onGoToLine   func(line int)
 	onDirOpen    func(path string)
 	onDismiss    func()
+	pasteFunc    func() string
 }
 
 // NewCommandPalette creates a new CommandPalette.
@@ -120,6 +121,11 @@ func (p *CommandPalette) SetOnDirOpen(fn func(path string)) {
 // SetOnDismiss sets the callback when the palette is dismissed.
 func (p *CommandPalette) SetOnDismiss(fn func()) {
 	p.onDismiss = fn
+}
+
+// SetPasteFunc wires a clipboard reader so Ctrl+V works in the palette.
+func (p *CommandPalette) SetPasteFunc(fn func() string) {
+	p.pasteFunc = fn
 }
 
 // Show makes the palette visible and resets state.
@@ -413,6 +419,18 @@ func (p *CommandPalette) HandleEvent(ev tcell.Event) bool {
 			// Remove last rune (not byte) to handle multi-byte chars like Korean
 			runes := []rune(p.query)
 			p.query = string(runes[:len(runes)-1])
+			p.detectMode()
+			p.filterItems()
+		}
+		return true
+	case tcell.KeyCtrlV:
+		if p.pasteFunc != nil {
+			text := p.pasteFunc()
+			if nl := strings.IndexByte(text, '\n'); nl >= 0 {
+				text = text[:nl]
+			}
+			text = strings.TrimRight(text, "\r")
+			p.query += text
 			p.detectMode()
 			p.filterItems()
 		}

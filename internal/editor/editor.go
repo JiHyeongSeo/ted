@@ -127,6 +127,7 @@ func New(cfg *config.Config, theme *syntax.Theme) *Editor {
 	e.inputBar = view.NewInputBar(theme)
 	e.searchBar.SetPasteFunc(e.readSystemClipboard)
 	e.inputBar.SetPasteFunc(e.readSystemClipboard)
+	e.palette.SetPasteFunc(e.readSystemClipboard)
 	e.listPicker = view.NewListPicker(theme)
 	e.graphFileUpdates = make(chan graphFileUpdate, 1)
 	e.lspNavResult = make(chan lsp.Location, 1)
