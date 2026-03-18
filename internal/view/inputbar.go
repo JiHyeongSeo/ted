@@ -70,6 +70,14 @@ func (ib *InputBar) SetValue(val string) {
 	ib.value = []rune(val)
 }
 
+// PasteText appends text to the current value (used for bracketed paste routing).
+func (ib *InputBar) PasteText(text string) {
+	ib.value = append(ib.value, []rune(text)...)
+	if ib.onChange != nil {
+		ib.onChange(string(ib.value))
+	}
+}
+
 // SetBoundsFromScreen positions the input bar centered on screen.
 func (ib *InputBar) SetBoundsFromScreen(width, height int) {
 	barWidth := width / 2

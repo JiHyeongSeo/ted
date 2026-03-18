@@ -128,6 +128,13 @@ func (p *CommandPalette) SetPasteFunc(fn func() string) {
 	p.pasteFunc = fn
 }
 
+// PasteText appends text to the current query (used for bracketed paste routing).
+func (p *CommandPalette) PasteText(text string) {
+	p.query += text
+	p.detectMode()
+	p.filterItems()
+}
+
 // Show makes the palette visible and resets state.
 func (p *CommandPalette) Show() {
 	p.visible = true

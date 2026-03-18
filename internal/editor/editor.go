@@ -615,7 +615,21 @@ func (e *Editor) Run(screen tcell.Screen) error {
 				e.pasteActive = false
 				// WT sends garbled encoding via bracketed paste — ignore it.
 				// Read clipboard directly with proper UTF-8 encoding.
-				if text := e.readSystemClipboard(); text != "" && e.editorView != nil {
+				text := e.readSystemClipboard()
+				if text == "" {
+					e.render()
+					continue
+				}
+				// Route paste to whichever overlay is active
+				firstLine := strings.TrimRight(strings.SplitN(text, "\n", 2)[0], "\r")
+				switch {
+				case e.inputBar.IsVisible():
+					e.inputBar.PasteText(firstLine)
+				case e.searchBar.IsVisible():
+					e.searchBar.PasteText(firstLine)
+				case e.palette.IsVisible():
+					e.palette.PasteText(firstLine)
+				case e.editorView != nil:
 					e.editorView.InsertText(text)
 					e.syncTabFromView()
 					e.lastEditTime = time.Now()

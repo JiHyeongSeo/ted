@@ -120,6 +120,14 @@ func (sb *SearchBar) SetPasteFunc(fn func() string) {
 	sb.pasteFunc = fn
 }
 
+// PasteText appends text to the current query (used for bracketed paste routing).
+func (sb *SearchBar) PasteText(text string) {
+	sb.query = append(sb.query, []rune(text)...)
+	if sb.onSearch != nil {
+		sb.onSearch(string(sb.query))
+	}
+}
+
 // drawRunes draws runes to the screen with proper wide character handling.
 // Returns the next x position.
 func drawRunes(screen tcell.Screen, x, y, maxX int, runes []rune, style tcell.Style) int {
