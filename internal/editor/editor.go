@@ -1010,6 +1010,19 @@ func (e *Editor) handleKeyEvent(ev *tcell.EventKey) {
 				if ev.Modifiers()&tcell.ModShift != 0 && r >= 'a' && r <= 'z' {
 					r -= 32
 				}
+				// Allow stage/unstage directly from graph view when uncommitted commit is selected
+				if e.graphView != nil && e.commitDetailView != nil {
+					if c := e.graphView.SelectedCommit(); c != nil && c.Hash == "uncommitted" {
+						if r == 'u' {
+							e.graphGitUnstageFile()
+							return
+						}
+						if r == ' ' {
+							e.graphGitStageFile()
+							return
+						}
+					}
+				}
 				switch r {
 				case 'c':
 					e.graphGitCommit()

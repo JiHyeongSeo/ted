@@ -96,6 +96,10 @@ func (cv *CommitDetailView) SelectedFile() string {
 // headerLines returns how many lines the header takes (before the file list).
 func (cv *CommitDetailView) headerLines() int {
 	// separator(1) + "Commit Details"(1) + hash(1) + message(1) + author(1) + blank(1) + "Changed files"(1) = 7
+	// uncommitted view has an extra legend line → 8
+	if cv.commit != nil && cv.commit.Hash == "uncommitted" {
+		return 8
+	}
 	return 7
 }
 
