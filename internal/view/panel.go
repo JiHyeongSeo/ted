@@ -164,6 +164,21 @@ func (p *BottomPanel) Render(screen tcell.Screen) {
 			x++
 		}
 	}
+	// Show focus indicator on the right side of the tab bar
+	if p.IsFocused() {
+		hint := " ↑↓:navigate  Enter:open  Esc:close "
+		hintStyle := activeTabStyle
+		hx := bounds.X + bounds.Width - len(hint)
+		if hx > x {
+			for _, ch := range hint {
+				if hx >= bounds.X+bounds.Width {
+					break
+				}
+				screen.SetContent(hx, bounds.Y, ch, nil, hintStyle)
+				hx++
+			}
+		}
+	}
 
 	// Draw content area
 	if p.activeTab >= 0 && p.activeTab < len(p.tabs) {

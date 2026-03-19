@@ -1373,6 +1373,7 @@ func (e *Editor) render() {
 	// Render panel
 	if r, ok := regions["panel"]; ok {
 		e.panel.SetBounds(r)
+		e.panel.SetFocused(e.panelFocus)
 		e.panel.Render(e.screen)
 	}
 
@@ -2703,20 +2704,7 @@ func (e *Editor) showProjectSearch() {
 	e.inputBar.SetOnSubmit(func(query string) {
 		e.inputBar.Hide()
 		e.inputBar.SetOnChange(nil)
-		query = strings.TrimSpace(query)
-		if query == "" {
-			return
-		}
-		// Navigate to first result
-		if len(e.projectSearchResults) > 0 {
-			first := e.projectSearchResults[0]
-			e.OpenFile(first.File)
-			if e.editorView != nil {
-				e.editorView.SetCursorPosition(types.Position{Line: first.Line - 1, Col: first.Col - 1})
-				e.syncTabFromView()
-				e.highlightProjectSearchInFile()
-			}
-		}
+		// Move focus to results panel so user can navigate with ↑↓ and Enter
 		e.panelFocus = true
 		e.sidebarFocus = false
 	})
